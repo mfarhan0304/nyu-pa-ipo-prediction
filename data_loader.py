@@ -32,7 +32,50 @@ class DataLoader:
         self.sec_features = None
         self.combined_data = None
         
+        # Standard date format for all data sources
+        self.standard_date_format = '%Y-%m-%d'
+        
         logger.info("DataLoader initialized")
+    
+    def _standardize_dates(self, df: pd.DataFrame, date_column: str) -> pd.DataFrame:
+        """
+        Standardize date column to consistent format and data type
+        
+        Args:
+            df: DataFrame to process
+            date_column: Name of the date column
+            
+        Returns:
+            DataFrame with standardized date column
+        """
+        try:
+            if date_column not in df.columns:
+                logger.warning(f"Date column '{date_column}' not found in DataFrame")
+                return df
+            
+            # Convert to datetime with error handling
+            df[date_column] = pd.to_datetime(df[date_column], errors='coerce', infer_datetime_format=True)
+            
+            # Convert to standard format (YYYY-MM-DD) and remove time component
+            df[date_column] = df[date_column].dt.date
+            df[date_column] = pd.to_datetime(df[date_column])
+            
+            # Log conversion results
+            valid_dates = df[date_column].notna().sum()
+            total_rows = len(df)
+            logger.info(f"Date standardization: {valid_dates}/{total_rows} valid dates in '{date_column}'")
+            
+            # Log date range
+            if valid_dates > 0:
+                min_date = df[date_column].min()
+                max_date = df[date_column].max()
+                logger.info(f"Date range: {min_date} to {max_date}")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error standardizing dates in column '{date_column}': {e}")
+            return df
     
     def load_ipo_data(self) -> pd.DataFrame:
         """
@@ -50,6 +93,10 @@ class DataLoader:
             # Load data
             df = pd.read_csv(IPO_DATA_PATH)
             logger.info(f"Loaded {len(df)} IPO records")
+            
+            # Standardize date column first
+            if 'Date' in df.columns:
+                df = self._standardize_dates(df, 'Date')
             
             # Basic preprocessing
             df = self._preprocess_ipo_data(df)
@@ -72,8 +119,26 @@ class DataLoader:
             # Load VIX data
             if VIX_DATA_PATH.exists():
                 self.vix_data = pd.read_csv(VIX_DATA_PATH)
-                self.vix_data['Date'] = pd.to_datetime(self.vix_data['Date'])
-                logger.info(f"Loaded {len(self.vix_data)} VIX records")
+                # Standardize VIX date column
+                self.vix_data = self._standardize_dates(self.vix_data, 'Date')
+                
+                # Ensure VIX data has all expected columns
+                expected_vix_cols = ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']
+                missing_vix_cols = [col for col in expected_vix_cols if col not in self.vix_data.columns]
+                if missing_vix_cols:
+                    logger.warning(f"Missing VIX columns: {missing_vix_cols}")
+                
+                # Convert VIX columns to appropriate data types
+                numeric_vix_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                for col in numeric_vix_cols:
+                    if col in self.vix_data.columns:
+                        self.vix_data[col] = pd.to_numeric(self.vix_data[col], errors='coerce')
+                        # Log data quality info
+                        valid_count = self.vix_data[col].notna().sum()
+                        total_count = len(self.vix_data)
+                        logger.info(f"VIX {col}: {valid_count}/{total_count} valid values")
+                
+                logger.info(f"Loaded {len(self.vix_data)} VIX records with columns: {list(self.vix_data.columns)}")
             else:
                 logger.warning(f"VIX data file not found: {VIX_DATA_PATH}")
                 self.vix_data = pd.DataFrame()
@@ -81,7 +146,8 @@ class DataLoader:
             # Load Federal Funds Rate data
             if FEDFUNDS_DATA_PATH.exists():
                 self.fedfunds_data = pd.read_csv(FEDFUNDS_DATA_PATH)
-                self.fedfunds_data['observation_date'] = pd.to_datetime(self.fedfunds_data['observation_date'])
+                # Standardize Fed Funds date column
+                self.fedfunds_data = self._standardize_dates(self.fedfunds_data, 'Date')
                 logger.info(f"Loaded {len(self.fedfunds_data)} Fed Funds Rate records")
             else:
                 logger.warning(f"Fed Funds Rate data file not found: {FEDFUNDS_DATA_PATH}")
@@ -196,6 +262,8 @@ class DataLoader:
             df = df[df['filing'] != 0]
             df = df[df['filing'].astype(str).str.strip() != '']
             
+            df = df[df['Total Offering Expense'] != '--']
+
             # Filter out rows with empty or invalid close_price
             df = df.dropna(subset=['close price'])
             df = df[df['close price'] > 0]  # Ensure close price is positive
@@ -205,9 +273,8 @@ class DataLoader:
             # Ensure CIK is properly formatted
             df['CIK'] = df['CIK'].astype(str).str.zfill(10)
             
-            # Convert date column
-            if 'Date' in df.columns:
-                df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+            # Date column already standardized in load_ipo_data method
+            # No need to convert again here
             
             # Clean numeric columns
             numeric_columns = ['Price', 'Shares', 'Employees', 'Total Offering Expense', 'close price']
@@ -243,9 +310,20 @@ class DataLoader:
                 logger.warning("No market data available for merging")
                 return df
             
-            # Merge VIX data
+            # Merge VIX data (all columns: Open, High, Low, Close, Volume)
             if not self.vix_data.empty:
-                df = self._get_closest_market_data(df, self.vix_data, 'VIX', 'VIX')
+                vix_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+                for col in vix_columns:
+                    if col in self.vix_data.columns:
+                        new_col_name = f'VIX_{col}'
+                        df = self._get_closest_market_data(df, self.vix_data, col, new_col_name)
+                        logger.info(f"Merged VIX {col} data as {new_col_name}")
+                    else:
+                        logger.warning(f"VIX column '{col}' not found in data")
+                
+                # Add derived VIX features for each IPO date
+                logger.info("Adding derived VIX features...")
+                df = self._add_derived_vix_features(df)
             
             # Merge Fed Funds Rate data
             if not self.fedfunds_data.empty:
@@ -287,7 +365,25 @@ class DataLoader:
                 
                 # Find closest market date
                 market_df_copy = market_df.copy()
+                
+                # Ensure both dates are datetime objects
+                if not isinstance(ipo_date, pd.Timestamp):
+                    logger.warning(f"Invalid IPO date type: {type(ipo_date)} for value: {ipo_date}")
+                    closest_values.append(np.nan)
+                    continue
+                
+                # Filter out invalid dates in market data
+                valid_market_dates = market_df_copy['Date'].notna()
+                if not valid_market_dates.any():
+                    logger.warning("No valid dates in market data")
+                    closest_values.append(np.nan)
+                    continue
+                
+                market_df_copy = market_df_copy[valid_market_dates].copy()
+                
+                # Calculate date differences
                 market_df_copy['date_diff'] = abs(market_df_copy['Date'] - ipo_date)
+
                 closest_idx = market_df_copy['date_diff'].idxmin()
                 
                 if pd.isna(closest_idx):
@@ -302,6 +398,54 @@ class DataLoader:
         except Exception as e:
             logger.error(f"Error getting closest market data: {e}")
             return ipo_df
+    
+    def _add_derived_vix_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add derived VIX features for IPO analysis
+        
+        Args:
+            df: DataFrame with VIX data
+            
+        Returns:
+            DataFrame with additional VIX features
+        """
+        try:
+            # VIX volatility (High - Low)
+            if 'VIX_High' in df.columns and 'VIX_Low' in df.columns:
+                df['VIX_Volatility'] = df['VIX_High'] - df['VIX_Low']
+                logger.info("Added VIX_Volatility feature (High - Low)")
+            
+            # VIX price range percentage
+            if 'VIX_Close' in df.columns and 'VIX_Open' in df.columns:
+                df['VIX_Price_Range_Pct'] = ((df['VIX_High'] - df['VIX_Low']) / df['VIX_Open']) * 100
+                logger.info("Added VIX_Price_Range_Pct feature")
+            
+            # VIX gap (Open vs Previous Close approximation)
+            if 'VIX_Open' in df.columns and 'VIX_Close' in df.columns:
+                # For simplicity, we'll use the current close as approximation
+                # In a real scenario, you might want to get the previous day's close
+                df['VIX_Gap'] = df['VIX_Open'] - df['VIX_Close']
+                logger.info("Added VIX_Gap feature (Open - Close)")
+            
+            # VIX volume analysis (if available)
+            if 'VIX_Volume' in df.columns:
+                # Log volume for analysis
+                valid_volume = df['VIX_Volume'].notna().sum()
+                total_records = len(df)
+                logger.info(f"VIX Volume data available for {valid_volume}/{total_records} records")
+                
+                # Add volume-based features if volume data is meaningful
+                if valid_volume > total_records * 0.5:  # If more than 50% have volume data
+                    # Volume relative to price (Volume/Close ratio)
+                    df['VIX_Volume_Price_Ratio'] = df['VIX_Volume'] / df['VIX_Close']
+                    logger.info("Added VIX_Volume_Price_Ratio feature")
+            
+            logger.info("Derived VIX features added successfully")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error adding derived VIX features: {e}")
+            return df
     
     def _merge_sec_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """

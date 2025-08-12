@@ -41,7 +41,7 @@ for i, row in tqdm(df.iterrows(), total=len(df)):
             "DealId": deal_id,
             "Employees": extract_employee_number(data.get("NumberOfEmployees", {}).get("value", "")),
             "Total Offering Expense": data.get("TotalExpenseOfTheOffering", {}).get("value", ""),
-            "Shareholder Shares Offered": data.get("ShareholderSharesOffered", {}).get("value", ""),
+            # "Shareholder Shares Offered": data.get("ShareholderSharesOffered", {}).get("value", ""),
             "Shares Outstanding": data.get("SharesOutstanding", {}).get("value", ""),
             "Lockup Period (days)": data.get("LockupPeriodNumberofDays", {}).get("value", ""),
             "Lockup Expiration": data.get("LockupPeriodExpirationDate", {}).get("value", ""),

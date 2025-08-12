@@ -1,11 +1,11 @@
 
 REGRESSION MODEL PERFORMANCE REPORT
 ==================================
-Mean Absolute Error: 1.99
-R² Score: 0.8745
-Root Mean Square Error: 3.69
+Mean Absolute Error: 2.82
+R² Score: 0.7756
+Root Mean Square Error: 4.86
 
 Price Range Analysis:
 - Actual close prices: $1.94 - $132.99
-- Predicted close prices: $2.83 - $103.60
-- Average prediction error: $1.99
+- Predicted close prices: $-3.53 - $125.81
+- Average prediction error: $2.82

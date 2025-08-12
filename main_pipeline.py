@@ -434,8 +434,26 @@ Price Range Analysis:
             
             # Model summary
             model_summary = self.model_trainer.get_model_summary()
+            
+            # Overall model summary
+            logger.info(f"Total models available: {model_summary['total_models']}")
             logger.info(f"Models trained: {model_summary['trained_models']}")
-            logger.info(f"Best model: {model_summary['best_model']}")
+            
+            # Regression models summary
+            if model_summary['trained_regression_models'] > 0:
+                logger.info(f"Regression models trained: {model_summary['trained_regression_models']}")
+                logger.info(f"Best regression model: {model_summary['best_regression_model']} (Score: {model_summary['best_regression_score']:.4f})")
+            
+            # Classification models summary
+            if model_summary['trained_classification_models'] > 0:
+                logger.info(f"Classification models trained: {model_summary['trained_classification_models']}")
+                logger.info(f"Best classification model: {model_summary['best_classification_model']} (Score: {model_summary['best_classification_score']:.4f})")
+            
+            # Overall best model
+            if model_summary['best_model']:
+                logger.info(f"Best overall model: {model_summary['best_model']} ({model_summary['best_model_type']}) - Score: {model_summary['best_model_score']:.4f}")
+            else:
+                logger.info("No models have been trained yet")
             
             # Feature engineering summary
             feature_summary = self.feature_engineer.get_feature_summary()
@@ -508,8 +526,23 @@ def main():
         print(f"\n📊 Pipeline Results:")
         print(f"- Data records: {results['data_summary'].get('combined_records', 0)}")
         print(f"- Features: {results['feature_summary'].get('total_features', 0)}")
+        print(f"- Total models available: {results['model_summary'].get('total_models', 0)}")
         print(f"- Models trained: {results['model_summary'].get('trained_models', 0)}")
-        print(f"- Best model: {results['model_summary'].get('best_model', 'N/A')}")
+        
+        # Regression results
+        if results['model_summary'].get('trained_regression_models', 0) > 0:
+            print(f"- Regression models: {results['model_summary'].get('trained_regression_models', 0)}")
+            print(f"  Best regression: {results['model_summary'].get('best_regression_model', 'N/A')} (Score: {results['model_summary'].get('best_regression_score', 0):.4f})")
+        
+        # Classification results
+        if results['model_summary'].get('trained_classification_models', 0) > 0:
+            print(f"- Classification models: {results['model_summary'].get('trained_classification_models', 0)}")
+            print(f"  Best classification: {results['model_summary'].get('best_classification_model', 'N/A')} (Score: {results['model_summary'].get('best_classification_score', 0):.4f})")
+        
+        # Overall best model
+        if results['model_summary'].get('best_model'):
+            print(f"- Best overall model: {results['model_summary'].get('best_model', 'N/A')} ({results['model_summary'].get('best_model_type', 'N/A')})")
+            print(f"  Overall best score: {results['model_summary'].get('best_model_score', 0):.4f}")
         
         print(f"\n📁 Output files created in 'results/' directory:")
         print("- enhanced_ipo_dataset.csv")

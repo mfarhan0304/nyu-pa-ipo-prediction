@@ -1,14 +1,14 @@
-Classification Report for Gradient Boosting Classification
+Classification Report for Random Forest Classification
 ==================================================
               precision    recall  f1-score   support
 
-        Down       0.86      0.47      0.61      1040
-          Up       0.80      0.97      0.88      2280
+        Down       0.96      0.28      0.44      1010
+          Up       0.75      1.00      0.86      2237
 
-    accuracy                           0.81      3320
-   macro avg       0.83      0.72      0.74      3320
-weighted avg       0.82      0.81      0.79      3320
+    accuracy                           0.77      3247
+   macro avg       0.86      0.64      0.65      3247
+weighted avg       0.82      0.77      0.73      3247
 
 Confusion Matrix:
-[[ 493  547]
- [  79 2201]]
+[[ 287  723]
+ [  11 2226]]

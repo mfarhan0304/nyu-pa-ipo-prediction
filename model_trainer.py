@@ -475,19 +475,39 @@ class ModelTrainer:
     
     def get_model_summary(self) -> Dict:
         """
-        Get summary of all trained models
+        Get summary of all trained models (both regression and classification)
         
         Returns:
-            Dictionary with model summary
+            Dictionary with comprehensive model summary
         """
         summary = {
+            # Overall counts
+            'total_models': len(self.regression_models) + len(self.classification_models),
+            'trained_models': len(self.trained_regression_models) + len(self.trained_classification_models),
+            
+            # Regression models
             'total_regression_models': len(self.regression_models),
             'trained_regression_models': len(self.trained_regression_models),
             'best_regression_model': self.best_regression_model_name,
-            'regression_results': {}
+            'best_regression_score': None,
+            
+            # Classification models
+            'total_classification_models': len(self.classification_models),
+            'trained_classification_models': len(self.trained_classification_models),
+            'best_classification_model': self.best_classification_model_name,
+            'best_classification_score': None,
+            
+            # Best overall model
+            'best_model': None,
+            'best_model_type': None,
+            'best_model_score': None,
+            
+            # Detailed results
+            'regression_results': {},
+            'classification_results': {}
         }
         
-        # Add results for each regression model
+        # Add regression results
         for model_key, result in self.regression_results.items():
             summary['regression_results'][model_key] = {
                 'name': result['name'],
@@ -496,6 +516,44 @@ class ModelTrainer:
                 'train_rmse': result['metrics'].get('train_rmse', None),
                 'test_rmse': result['metrics'].get('test_rmse', None)
             }
+        
+        # Add classification results
+        for model_key, result in self.classification_results.items():
+            summary['classification_results'][model_key] = {
+                'name': result['name'],
+                'train_accuracy': result['metrics'].get('train_accuracy', None),
+                'test_accuracy': result['metrics'].get('test_accuracy', None),
+                'train_f1': result['metrics'].get('train_f1', None),
+                'test_f1': result['metrics'].get('test_f1', None)
+            }
+        
+        # Determine best models and scores
+        if self.regression_results:
+            best_reg_score = max([result['metrics'].get('test_r2', 0) for result in self.regression_results.values()])
+            summary['best_regression_score'] = best_reg_score
+            
+        if self.classification_results:
+            best_clf_score = max([result['metrics'].get('test_accuracy', 0) for result in self.classification_results.values()])
+            summary['best_classification_score'] = best_clf_score
+        
+        # Determine overall best model
+        if summary['best_regression_score'] is not None and summary['best_classification_score'] is not None:
+            if summary['best_regression_score'] > summary['best_classification_score']:
+                summary['best_model'] = summary['best_regression_model']
+                summary['best_model_type'] = 'regression'
+                summary['best_model_score'] = summary['best_regression_score']
+            else:
+                summary['best_model'] = summary['best_classification_model']
+                summary['best_model_type'] = 'classification'
+                summary['best_model_score'] = summary['best_classification_score']
+        elif summary['best_regression_score'] is not None:
+            summary['best_model'] = summary['best_regression_model']
+            summary['best_model_type'] = 'regression'
+            summary['best_model_score'] = summary['best_regression_score']
+        elif summary['best_classification_score'] is not None:
+            summary['best_model'] = summary['best_classification_model']
+            summary['best_model_type'] = 'classification'
+            summary['best_model_score'] = summary['best_classification_score']
         
         return summary
     

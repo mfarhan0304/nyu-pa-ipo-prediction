@@ -16,6 +16,7 @@ from sklearn.feature_selection import SelectKBest, f_regression
 from sklearn.decomposition import PCA
 
 from config import FEATURE_CONFIG, RANDOM_STATE
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -392,19 +393,215 @@ class FeatureEngineer:
             logger.error(f"Error scaling features: {e}")
             raise
     
-    def apply_feature_selection(self, X: np.ndarray, y: np.ndarray, k: int = 150) -> np.ndarray:
+    def find_optimal_k(self, X: np.ndarray, y: np.ndarray, max_k: int = None, 
+                       min_k: int = 100, step: int = 10, plot: bool = True) -> int:
         """
-        Apply feature selection using statistical tests
+        Find optimal k using scree plot analysis
         
         Args:
             X: Feature matrix
             y: Target variable
-            k: Number of features to select
+            max_k: Maximum k to test (default: min(200, n_features))
+            min_k: Minimum k to test
+            step: Step size for k values
+            plot: Whether to create scree plot
+            
+        Returns:
+            Optimal k value
+        """
+        try:
+            logger.info("Finding optimal k using scree plot analysis...")
+            
+            # Set max_k if not provided
+            if max_k is None:
+                max_k = min(200, X.shape[1])
+            
+            # Generate k values to test
+            k_values = list(range(min_k, max_k + 1, step))
+            if max_k not in k_values:
+                k_values.append(max_k)
+            
+            # Calculate scores for each k
+            scores = []
+            feature_importance_data = []
+            
+            for k in k_values:
+                try:
+                    # Create selector for this k
+                    selector = SelectKBest(score_func=f_regression, k=min(k, X.shape[1]))
+                    selector.fit(X, y)
+                    
+                    # Get scores and sort them
+                    feature_scores = selector.scores_
+                    sorted_indices = np.argsort(feature_scores)[::-1]
+                    
+                    # Calculate cumulative score (sum of top k feature scores)
+                    top_k_scores = feature_scores[sorted_indices[:k]]
+                    cumulative_score = np.sum(top_k_scores)
+                    
+                    scores.append(cumulative_score)
+                    feature_importance_data.append({
+                        'k': k,
+                        'cumulative_score': cumulative_score,
+                        'top_features': sorted_indices[:k],
+                        'top_scores': top_k_scores
+                    })
+                    
+                    logger.info(f"k={k:3d}: Cumulative score = {cumulative_score:.2f}")
+                    
+                except Exception as e:
+                    logger.warning(f"Error calculating score for k={k}: {e}")
+                    continue
+            
+            if not scores:
+                logger.warning("Could not calculate scores for any k value")
+                return min_k
+            
+            # Find elbow point using second derivative method
+            optimal_k = self._find_elbow_point(k_values, scores)
+            
+            logger.info(f"Optimal k determined: {optimal_k}")
+            
+            # Create scree plot if requested
+            if plot:
+                self._create_scree_plot(k_values, scores, optimal_k, feature_importance_data)
+            
+            return optimal_k
+            
+        except Exception as e:
+            logger.error(f"Error finding optimal k: {e}")
+            return min_k
+    
+    def _find_elbow_point(self, k_values: List[int], scores: List[float]) -> int:
+        """
+        Find elbow point using second derivative method
+        
+        Args:
+            k_values: List of k values tested
+            scores: List of corresponding scores
+            
+        Returns:
+            k value at the elbow point
+        """
+        try:
+            if len(scores) < 3:
+                return k_values[0]
+            
+            # Calculate first and second derivatives
+            first_derivative = np.gradient(scores)
+            second_derivative = np.gradient(first_derivative)
+            
+            # Find point with maximum second derivative (elbow)
+            elbow_idx = np.argmax(second_derivative)
+            
+            # Ensure we don't pick the first or last point
+            if elbow_idx == 0:
+                elbow_idx = 1
+            elif elbow_idx == len(k_values) - 1:
+                elbow_idx = len(k_values) - 2
+            
+            optimal_k = k_values[elbow_idx]
+            
+            logger.info(f"Elbow point found at k={optimal_k} (second derivative method)")
+            return optimal_k
+            
+        except Exception as e:
+            logger.warning(f"Error in elbow point detection: {e}")
+            # Fallback: return k with 80% of max score
+            max_score = max(scores)
+            threshold = 0.8 * max_score
+            
+            for i, score in enumerate(scores):
+                if score >= threshold:
+                    return k_values[i]
+            
+            return k_values[len(k_values) // 2]  # Return middle value as fallback
+    
+    def _create_scree_plot(self, k_values: List[int], scores: List[float], 
+                          optimal_k: int, feature_importance_data: List[Dict]):
+        """
+        Create scree plot to visualize feature selection results
+        
+        Args:
+            k_values: List of k values tested
+            scores: List of corresponding scores
+            optimal_k: Optimal k value found
+            feature_importance_data: Detailed data for each k
+        """
+        try:
+            import matplotlib.pyplot as plt
+            
+            # Create figure with subplots
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+            
+            # Plot 1: Cumulative score vs k
+            ax1.plot(k_values, scores, 'bo-', linewidth=2, markersize=6)
+            ax1.axvline(x=optimal_k, color='red', linestyle='--', 
+                       label=f'Optimal k = {optimal_k}')
+            ax1.set_xlabel('Number of Features (k)')
+            ax1.set_ylabel('Cumulative Feature Importance Score')
+            ax1.set_title('Scree Plot: Feature Selection')
+            ax1.grid(True, alpha=0.3)
+            ax1.legend()
+            
+            # Plot 2: Marginal improvement (first derivative)
+            if len(scores) > 1:
+                marginal_improvement = np.diff(scores)
+                ax2.plot(k_values[1:], marginal_improvement, 'go-', linewidth=2, markersize=6)
+                ax2.axvline(x=optimal_k, color='red', linestyle='--', 
+                           label=f'Optimal k = {optimal_k}')
+                ax2.set_xlabel('Number of Features (k)')
+                ax2.set_ylabel('Marginal Improvement')
+                ax2.set_title('Marginal Improvement vs k')
+                ax2.grid(True, alpha=0.3)
+                ax2.legend()
+            
+            plt.tight_layout()
+            
+            # Save plot
+            plot_path = Path("results/feature_selection_scree_plot.png")
+            plot_path.parent.mkdir(exist_ok=True)
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            
+            logger.info(f"Scree plot saved to {plot_path}")
+            
+            # Save detailed results
+            results_path = Path("results/feature_selection_analysis.csv")
+            results_df = pd.DataFrame(feature_importance_data)
+            results_df.to_csv(results_path, index=False)
+            logger.info(f"Feature selection analysis saved to {results_path}")
+            
+        except ImportError:
+            logger.warning("Matplotlib not available, skipping plot creation")
+        except Exception as e:
+            logger.warning(f"Error creating scree plot: {e}")
+    
+    def apply_feature_selection(self, X: np.ndarray, y: np.ndarray, k: int = None, 
+                               auto_k: bool = True, max_k: int = 200) -> np.ndarray:
+        """
+        Apply feature selection using statistical tests with optimal k selection
+        
+        Args:
+            X: Feature matrix
+            y: Target variable
+            k: Number of features to select (if auto_k=False)
+            auto_k: Whether to automatically find optimal k
+            max_k: Maximum k to consider when auto_k=True
             
         Returns:
             Selected feature matrix
         """
         try:
+            # Determine optimal k if requested
+            if auto_k:
+                optimal_k = self.find_optimal_k(X, y, max_k=max_k)
+                k = optimal_k
+                logger.info(f"Auto-selected optimal k: {k}")
+            elif k is None:
+                k = min(150, X.shape[1])  # Default fallback
+                logger.info(f"Using default k: {k}")
+            
             logger.info(f"Applying feature selection (k={k})...")
             
             # Create feature selector
@@ -511,6 +708,75 @@ class FeatureEngineer:
         except Exception as e:
             logger.error(f"Error getting feature importance scores: {e}")
             return pd.DataFrame()
+    
+    def get_optimal_feature_importance(self, X: np.ndarray, y: np.ndarray, 
+                                      max_k: int = 200) -> pd.DataFrame:
+        """
+        Get feature importance scores using optimal k selection
+        
+        Args:
+            X: Feature matrix
+            y: Target variable
+            max_k: Maximum k to consider
+            
+        Returns:
+            DataFrame with feature importance scores and selection status
+        """
+        try:
+            logger.info("Getting feature importance with optimal k selection...")
+            
+            # Find optimal k
+            optimal_k = self.find_optimal_k(X, y, max_k=max_k, plot=False)
+            
+            # Apply feature selection with optimal k
+            X_selected = self.apply_feature_selection(X, y, k=optimal_k, auto_k=False)
+            
+            # Get feature importance scores
+            importance_df = self.get_feature_importance_scores()
+            
+            if not importance_df.empty:
+                # Add selection status
+                importance_df['selected'] = importance_df.index < optimal_k
+                importance_df['rank'] = range(1, len(importance_df) + 1)
+                
+                # Add optimal k information
+                importance_df.attrs['optimal_k'] = optimal_k
+                importance_df.attrs['total_features'] = X.shape[1]
+                importance_df.attrs['selected_features'] = optimal_k
+                
+                logger.info(f"Feature importance analysis completed. Optimal k: {optimal_k}")
+                logger.info(f"Top 5 features: {importance_df.head()['feature'].tolist()}")
+            
+            return importance_df
+            
+        except Exception as e:
+            logger.error(f"Error getting optimal feature importance: {e}")
+            return pd.DataFrame()
+    
+    def get_feature_selection_summary(self) -> Dict:
+        """
+        Get summary of feature selection process
+        
+        Returns:
+            Dictionary with feature selection summary
+        """
+        summary = {
+            'feature_selector_fitted': self.feature_selector is not None,
+            'total_features': len(self.feature_names) if self.feature_names else 0,
+            'selected_features': len(self.selected_features) if self.selected_features else 0
+        }
+        
+        if self.feature_selector is not None:
+            summary['selection_method'] = 'SelectKBest with f_regression'
+            summary['k_used'] = self.feature_selector.k
+            
+            # Add feature importance info if available
+            if hasattr(self.feature_selector, 'scores_'):
+                summary['max_score'] = float(np.max(self.feature_selector.scores_))
+                summary['min_score'] = float(np.min(self.feature_selector.scores_))
+                summary['mean_score'] = float(np.mean(self.feature_selector.scores_))
+        
+        return summary
     
     def get_feature_summary(self) -> Dict:
         """

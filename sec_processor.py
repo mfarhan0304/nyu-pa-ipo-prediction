@@ -87,12 +87,21 @@ class SECFilingProcessor:
             
             processed_data = []
             
+            processed_count = 0  # Local counter for accurate progress tracking
+            
             for idx, row in ipo_df.iterrows():
                 try:
+                    processed_count += 1  # Increment local counter
+                    
+                    # Safety check: ensure we don't exceed the intended limit
+                    if processed_count > len(ipo_df):
+                        logger.warning(f"Reached processing limit of {len(ipo_df)}. Stopping.")
+                        break
+                    
                     filing_type = str(row['filing'])
                     cik = str(row['CIK'])
                     
-                    logger.info(f"Processing {idx+1}/{len(ipo_df)}: {filing_type}/{cik}")
+                    logger.info(f"Processing {processed_count}/{len(ipo_df)}: {filing_type}/{cik}")
                     
                     # Process filing
                     features = self.process_filing(filing_type, cik)
@@ -113,7 +122,17 @@ class SECFilingProcessor:
             # Create DataFrame
             if processed_data:
                 features_df = pd.DataFrame(processed_data)
-                logger.info(f"Successfully processed {len(features_df)} filings")
+                actual_processed = len(features_df)
+                expected_processed = len(ipo_df)
+                
+                logger.info(f"Successfully processed {actual_processed}/{expected_processed} filings")
+                
+                # Validate that we didn't exceed the limit
+                if actual_processed > expected_processed:
+                    logger.warning(f"Processed more filings than expected: {actual_processed} > {expected_processed}")
+                elif actual_processed < expected_processed:
+                    logger.info(f"Some filings failed to process: {actual_processed}/{expected_processed}")
+                
                 return features_df
             else:
                 logger.warning("No filings were successfully processed")
