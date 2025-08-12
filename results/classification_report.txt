@@ -1,0 +1,14 @@
+Classification Report for Gradient Boosting Classification
+==================================================
+              precision    recall  f1-score   support
+
+        Down       0.86      0.47      0.61      1040
+          Up       0.80      0.97      0.88      2280
+
+    accuracy                           0.81      3320
+   macro avg       0.83      0.72      0.74      3320
+weighted avg       0.82      0.81      0.79      3320
+
+Confusion Matrix:
+[[ 493  547]
+ [  79 2201]]

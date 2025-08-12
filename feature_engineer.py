@@ -302,6 +302,9 @@ class FeatureEngineer:
         try:
             logger.info("Selecting features for modeling...")
             
+            # Define target variables to exclude
+            target_variables = ['close_price_target', 'price_direction', 'close price', 'first_day_return']
+            
             # Get all feature categories
             all_features = []
             
@@ -326,16 +329,17 @@ class FeatureEngineer:
             all_features.extend(embedding_features)
             
             # Additional engineered features
-            engineered_features = [col for col in df.columns if col not in all_features and col not in ['Date', 'Symbol', 'Company Name', 'CIK', 'cik']]
+            engineered_features = [col for col in df.columns if col not in all_features and col not in ['Date', 'Symbol', 'Company Name', 'CIK', 'cik'] + target_variables]
             all_features.extend(engineered_features)
             
             # Remove duplicates
             all_features = list(set(all_features))
             
-            # Filter to available columns
-            available_features = [col for col in all_features if col in df.columns]
+            # Filter to available columns and exclude target variables
+            available_features = [col for col in all_features if col in df.columns and col not in target_variables]
             
             logger.info(f"Selected {len(available_features)} features for modeling")
+            logger.info(f"Excluded target variables: {target_variables}")
             
             # Store feature names
             self.feature_names = available_features

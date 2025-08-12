@@ -24,6 +24,9 @@ from config import (
     FEATURE_IMPORTANCE_PATH, PREDICTIONS_PATH
 )
 
+# Import metrics
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score
+
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, LOGGING_CONFIG['level']),
@@ -100,7 +103,7 @@ class IPOPipeline:
             logger.info("STEP 3: MODEL TRAINING AND EVALUATION")
             logger.info("="*60)
             
-            success = self._train_and_evaluate_models(enable_feature_selection, enable_pca)
+            success = self._train_models()
             if not success:
                 logger.error("Pipeline failed at model training step")
                 return False
@@ -209,88 +212,171 @@ class IPOPipeline:
             logger.error(f"Error in feature engineering: {e}")
             return False
     
-    def _train_and_evaluate_models(self, enable_feature_selection: bool = True, 
-                                 enable_pca: bool = False) -> bool:
+    def _train_models(self) -> bool:
         """
-        Train and evaluate machine learning models
+        Train and evaluate models
         
-        Args:
-            enable_feature_selection: Whether to enable feature selection
-            enable_pca: Whether to enable PCA dimensionality reduction
-            
         Returns:
             True if successful, False otherwise
         """
         try:
-            if self.engineered_features is None:
-                logger.error("No engineered features available for modeling")
+            logger.info("Training and evaluating models...")
+            
+            # Prepare data for both regression and classification
+            if 'close_price_target' not in self.combined_data.columns or 'price_direction' not in self.combined_data.columns:
+                logger.error("Target variables not found in combined data")
                 return False
             
-            # Prepare target variable
-            if 'first_day_return' not in self.combined_data.columns:
-                logger.error("Target variable 'first_day_return' not found")
-                return False
-            
-            y = self.combined_data['first_day_return']
+            # Prepare features and targets
             X = self.engineered_features
+            y_regression = self.combined_data['close_price_target'].values
+            y_classification = self.combined_data['price_direction'].values
             
-            # Prepare data for training
-            logger.info("Preparing data for training...")
-            X_train, X_test, y_train, y_test = self.model_trainer.prepare_data(X, y)
+            # Remove rows with invalid targets
+            valid_mask = np.isfinite(y_regression) & (y_regression > 0) & np.isfinite(y_classification)
+            X_clean = X[valid_mask]
+            y_regression_clean = y_regression[valid_mask]
+            y_classification_clean = y_classification[valid_mask]
             
-            # Store for later use
-            self.X_train, self.X_test = X_train, X_test
-            self.y_train, self.y_test = y_train, y_test
+            logger.info(f"Data shape after cleaning: {X_clean.shape}")
+            logger.info(f"Regression target range: {y_regression_clean.min():.2f} - {y_regression_clean.max():.2f}")
+            logger.info(f"Classification target distribution: {np.bincount(y_classification_clean)}")
             
-            # Scale features
-            logger.info("Scaling features...")
-            X_train_scaled, X_test_scaled = self.feature_engineer.scale_features(X_train, X_test)
+            # Train regression models
+            logger.info("\n" + "-"*40)
+            logger.info("TRAINING REGRESSION MODELS (Close Price Prediction)")
+            logger.info("-"*40)
             
-            # Apply feature selection if enabled
-            if enable_feature_selection:
-                logger.info("Applying feature selection...")
-                X_train_selected = self.feature_engineer.apply_feature_selection(X_train_scaled, y_train)
-                X_test_selected = self.feature_engineer.apply_feature_selection(X_test_scaled, y_test)
-                
-                X_train_final = X_train_selected
-                X_test_final = X_test_selected
-            else:
-                X_train_final = X_train_scaled
-                X_test_final = X_test_scaled
+            regression_results = self.model_trainer.train_regression_models(X_clean, y_regression_clean)
             
-            # Apply PCA if enabled
-            if enable_pca:
-                logger.info("Applying PCA dimensionality reduction...")
-                # Fit PCA on training data only
-                X_train_final = self.feature_engineer.fit_pca(X_train_final)
-                # Transform test data using fitted PCA
-                X_test_final = self.feature_engineer.transform_pca(X_test_final)
-
-            self.X_test = X_test_final
+            # Train classification models
+            logger.info("\n" + "-"*40)
+            logger.info("TRAINING CLASSIFICATION MODELS (Price Direction Prediction)")
+            logger.info("-"*40)
             
-            # Train models
-            logger.info("Training models...")
-            training_results = self.model_trainer.train_models(
-                X_train_final, y_train, X_test_final, y_test
-            )
+            classification_results = self.model_trainer.train_classification_models(X_clean, y_classification_clean)
             
-            if not training_results:
-                logger.error("Model training failed")
-                return False
+            # Cross-validation for both model types
+            logger.info("\n" + "-"*40)
+            logger.info("CROSS-VALIDATION RESULTS")
+            logger.info("-"*40)
             
-            # Perform cross-validation
-            logger.info("Performing cross-validation...")
-            cv_results = self.model_trainer.cross_validate_models(X_train_final, y_train)
-                        
-            # Get feature importance
-            feature_importance = self.model_trainer.get_feature_importance()
+            cv_regression = self.model_trainer.cross_validate_regression_models(X_clean, y_regression_clean)
+            cv_classification = self.model_trainer.cross_validate_classification_models(X_clean, y_classification_clean)
+            
+            # Save results
+            self.model_trainer.save_regression_results()
+            self.model_trainer.save_classification_results()
+            
+            # Generate predictions for comparison
+            self._generate_predictions(X_clean, y_regression_clean, y_classification_clean)
             
             logger.info("Model training and evaluation completed successfully")
             return True
             
         except Exception as e:
-            logger.error(f"Error in model training and evaluation: {e}")
+            logger.error(f"Error in model training: {e}")
             return False
+    
+    def _generate_predictions(self, X: np.ndarray, y_regression: np.ndarray, y_classification: np.ndarray):
+        """
+        Generate predictions for both regression and classification models
+        
+        Args:
+            X: Feature matrix
+            y_regression: Regression targets
+            y_classification: Classification targets
+        """
+        try:
+            logger.info("Generating predictions for comparison...")
+            
+            # Get best models
+            best_regression = self.model_trainer.best_regression_model
+            best_classification = self.model_trainer.best_classification_model
+            
+            if best_regression is None or best_classification is None:
+                logger.warning("Best models not available for prediction")
+                return
+            
+            # Make predictions
+            regression_pred = best_regression.predict(X)
+            classification_pred = best_classification.predict(X)
+            
+            # Create comparison DataFrame
+            comparison_df = pd.DataFrame({
+                'actual_close_price': y_regression,
+                'predicted_close_price': regression_pred,
+                'close_price_error': np.abs(y_regression - regression_pred),
+                'actual_direction': y_classification,
+                'predicted_direction': classification_pred,
+                'direction_correct': (y_classification == classification_pred).astype(int)
+            })
+            
+            # Calculate metrics
+            regression_mae = mean_absolute_error(y_regression, regression_pred)
+            regression_r2 = r2_score(y_regression, regression_pred)
+            classification_accuracy = accuracy_score(y_classification, classification_pred)
+            
+            logger.info(f"Regression Performance - MAE: {regression_mae:.2f}, R²: {regression_r2:.4f}")
+            logger.info(f"Classification Performance - Accuracy: {classification_accuracy:.4f}")
+            
+            # Save predictions
+            from config import PREDICTIONS_PATH
+            comparison_df.to_csv(PREDICTIONS_PATH, index=False)
+            logger.info(f"Predictions saved to {PREDICTIONS_PATH}")
+            
+            # Generate detailed reports
+            self._generate_model_reports(y_regression, regression_pred, y_classification, classification_pred)
+            
+        except Exception as e:
+            logger.error(f"Error generating predictions: {e}")
+    
+    def _generate_model_reports(self, y_regression: np.ndarray, y_regression_pred: np.ndarray, 
+                               y_classification: np.ndarray, y_classification_pred: np.ndarray):
+        """
+        Generate detailed model performance reports
+        
+        Args:
+            y_regression: Actual regression targets
+            y_regression_pred: Predicted regression values
+            y_classification: Actual classification targets
+            y_classification_pred: Predicted classification values
+        """
+        try:
+            logger.info("Generating detailed model reports...")
+            
+            # Regression report
+            regression_report = f"""
+REGRESSION MODEL PERFORMANCE REPORT
+==================================
+Mean Absolute Error: {mean_absolute_error(y_regression, y_regression_pred):.2f}
+R² Score: {r2_score(y_regression, y_regression_pred):.4f}
+Root Mean Square Error: {np.sqrt(mean_squared_error(y_regression, y_regression_pred)):.2f}
+
+Price Range Analysis:
+- Actual close prices: ${y_regression.min():.2f} - ${y_regression.max():.2f}
+- Predicted close prices: ${y_regression_pred.min():.2f} - ${y_regression_pred.max():.2f}
+- Average prediction error: ${np.mean(np.abs(y_regression - y_regression_pred)):.2f}
+"""
+            
+            # Classification report
+            classification_report = self.model_trainer.get_classification_report(
+                y_classification, y_classification_pred, 
+                self.model_trainer.best_classification_model_name or "Best Classification Model"
+            )
+            
+            # Save reports
+            from config import RESULTS_DIR
+            with open(RESULTS_DIR / "regression_report.txt", "w") as f:
+                f.write(regression_report)
+            
+            with open(RESULTS_DIR / "classification_report.txt", "w") as f:
+                f.write(classification_report)
+            
+            logger.info("Model reports generated and saved")
+            
+        except Exception as e:
+            logger.error(f"Error generating model reports: {e}")
     
     def _save_results_and_reports(self) -> bool:
         """

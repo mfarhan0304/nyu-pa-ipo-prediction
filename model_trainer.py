@@ -13,10 +13,10 @@ warnings.filterwarnings('ignore')
 
 # ML imports
 from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
-from sklearn.svm import SVR
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score, classification_report, confusion_matrix
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, LogisticRegression
+from sklearn.svm import SVR, SVC
 import xgboost as xgb
 
 from config import MODELS_CONFIG, RANDOM_STATE, TEST_SIZE, CROSS_VALIDATION_FOLDS
@@ -30,11 +30,16 @@ class ModelTrainer:
     
     def __init__(self):
         """Initialize the model trainer"""
-        self.models = {}
-        self.trained_models = {}
-        self.model_results = {}
-        self.best_model = None
-        self.best_model_name = None
+        self.regression_models = {}
+        self.classification_models = {}
+        self.trained_regression_models = {}
+        self.trained_classification_models = {}
+        self.regression_results = {}
+        self.classification_results = {}
+        self.best_regression_model = None
+        self.best_classification_model = None
+        self.best_regression_model_name = None
+        self.best_classification_model_name = None
         
         # Initialize models
         self._initialize_models()
@@ -46,30 +51,60 @@ class ModelTrainer:
         try:
             logger.info("Initializing models...")
             
-            for model_key, model_config in MODELS_CONFIG.items():
+            # Initialize regression models
+            regression_configs = {
+                'linear_regression': {'name': 'Linear Regression', 'class': 'sklearn.linear_model.LinearRegression', 'params': {}},
+                'ridge_regression': {'name': 'Ridge Regression', 'class': 'sklearn.linear_model.Ridge', 'params': {'alpha': 1.0}},
+                'random_forest_regression': {'name': 'Random Forest Regression', 'class': 'sklearn.ensemble.RandomForestRegressor', 'params': {'n_estimators': 100, 'max_depth': 10, 'random_state': RANDOM_STATE}},
+                'gradient_boosting_regression': {'name': 'Gradient Boosting Regression', 'class': 'sklearn.ensemble.GradientBoostingRegressor', 'params': {'n_estimators': 100, 'learning_rate': 0.1, 'max_depth': 5, 'random_state': RANDOM_STATE}},
+                'xgboost_regression': {'name': 'XGBoost Regression', 'class': 'xgboost.XGBRegressor', 'params': {'n_estimators': 100, 'learning_rate': 0.1, 'max_depth': 5, 'random_state': RANDOM_STATE}}
+            }
+            
+            # Initialize classification models
+            classification_configs = {
+                'logistic_regression': {'name': 'Logistic Regression', 'class': 'sklearn.linear_model.LogisticRegression', 'params': {'random_state': RANDOM_STATE}},
+                'random_forest_classification': {'name': 'Random Forest Classification', 'class': 'sklearn.ensemble.RandomForestClassifier', 'params': {'n_estimators': 100, 'max_depth': 10, 'random_state': RANDOM_STATE}},
+                'gradient_boosting_classification': {'name': 'Gradient Boosting Classification', 'class': 'sklearn.ensemble.GradientBoostingClassifier', 'params': {'n_estimators': 100, 'learning_rate': 0.1, 'max_depth': 5, 'random_state': RANDOM_STATE}},
+                'xgboost_classification': {'name': 'XGBoost Classification', 'class': 'xgboost.XGBClassifier', 'params': {'n_estimators': 100, 'learning_rate': 0.1, 'max_depth': 5, 'random_state': RANDOM_STATE}}
+            }
+            
+            # Initialize regression models
+            for model_key, model_config in regression_configs.items():
                 try:
-                    # Import model class
                     module_path, class_name = model_config['class'].rsplit('.', 1)
                     module = __import__(module_path, fromlist=[class_name])
                     model_class = getattr(module, class_name)
-                    
-                    # Create model instance
                     model = model_class(**model_config['params'])
                     
-                    # Store model
-                    self.models[model_key] = {
+                    self.regression_models[model_key] = {
                         'name': model_config['name'],
                         'instance': model,
                         'params': model_config['params']
                     }
-                    
                     logger.info(f"Initialized {model_config['name']}")
-                    
                 except Exception as e:
                     logger.warning(f"Could not initialize {model_key}: {e}")
                     continue
             
-            logger.info(f"Successfully initialized {len(self.models)} models")
+            # Initialize classification models
+            for model_key, model_config in classification_configs.items():
+                try:
+                    module_path, class_name = model_config['class'].rsplit('.', 1)
+                    module = __import__(module_path, fromlist=[class_name])
+                    model_class = getattr(module, class_name)
+                    model = model_class(**model_config['params'])
+                    
+                    self.classification_models[model_key] = {
+                        'name': model_config['name'],
+                        'instance': model,
+                        'params': model_config['params']
+                    }
+                    logger.info(f"Initialized {model_config['name']}")
+                except Exception as e:
+                    logger.warning(f"Could not initialize {model_key}: {e}")
+                    continue
+            
+            logger.info(f"Successfully initialized {len(self.regression_models)} regression models and {len(self.classification_models)} classification models")
             
         except Exception as e:
             logger.error(f"Error initializing models: {e}")
@@ -111,26 +146,30 @@ class ModelTrainer:
             logger.error(f"Error preparing data: {e}")
             raise
     
-    def train_models(self, X_train: np.ndarray, y_train: np.ndarray, 
-                    X_test: np.ndarray = None, y_test: np.ndarray = None) -> Dict:
+    def train_regression_models(self, X: np.ndarray, y: np.ndarray) -> Dict:
         """
-        Train all models
+        Train all regression models
         
         Args:
-            X_train: Training features
-            y_train: Training target
-            X_test: Test features (optional)
-            y_test: Test target (optional)
+            X: Feature matrix
+            y: Regression target
             
         Returns:
             Dictionary with training results
         """
         try:
-            logger.info("Starting model training...")
+            logger.info("Training regression models...")
+            
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE
+            )
+            
+            logger.info(f"Data split: Train={X_train.shape[0]}, Test={X_test.shape[0]}")
             
             results = {}
             
-            for model_key, model_info in self.models.items():
+            for model_key, model_info in self.regression_models.items():
                 try:
                     logger.info(f"Training {model_info['name']}...")
                     
@@ -139,20 +178,16 @@ class ModelTrainer:
                     model.fit(X_train, y_train)
                     
                     # Store trained model
-                    self.trained_models[model_key] = model
+                    self.trained_regression_models[model_key] = model
                     
                     # Make predictions
                     y_train_pred = model.predict(X_train)
-                    y_test_pred = model.predict(X_test) if X_test is not None else None
+                    y_test_pred = model.predict(X_test)
                     
                     # Calculate metrics
                     train_metrics = self._calculate_metrics(y_train, y_train_pred, 'train')
-                    
-                    if X_test is not None and y_test is not None:
-                        test_metrics = self._calculate_metrics(y_test, y_test_pred, 'test')
-                        metrics = {**train_metrics, **test_metrics}
-                    else:
-                        metrics = train_metrics
+                    test_metrics = self._calculate_metrics(y_test, y_test_pred, 'test')
+                    metrics = {**train_metrics, **test_metrics}
                     
                     # Store results
                     results[model_key] = {
@@ -160,29 +195,27 @@ class ModelTrainer:
                         'metrics': metrics,
                         'predictions': {
                             'train': y_train_pred,
-                            'test': y_test_pred if y_test is not None else None
+                            'test': y_test_pred
                         }
                     }
                     
-                    logger.info(f"  {model_info['name']}: Train R² = {metrics['train_r2']:.4f}")
-                    if 'test_r2' in metrics:
-                        logger.info(f"  {model_info['name']}: Test R² = {metrics['test_r2']:.4f}")
+                    logger.info(f"{model_info['name']}: Train R² = {metrics['train_r2']:.4f}, Test R² = {metrics['test_r2']:.4f}")
                     
                 except Exception as e:
                     logger.error(f"Error training {model_key}: {e}")
                     continue
             
             # Store results
-            self.model_results = results
+            self.regression_results = results
             
             # Find best model
             self._find_best_model()
             
-            logger.info("Model training completed successfully")
+            logger.info("Regression model training completed")
             return results
             
         except Exception as e:
-            logger.error(f"Error in model training: {e}")
+            logger.error(f"Error in regression model training: {e}")
             raise
     
     def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray, prefix: str) -> Dict:
@@ -218,14 +251,14 @@ class ModelTrainer:
     def _find_best_model(self):
         """Find the best performing model"""
         try:
-            if not self.model_results:
+            if not self.regression_results:
                 return
             
             # Find best model based on test R² score
             best_score = -np.inf
             best_model_key = None
             
-            for model_key, result in self.model_results.items():
+            for model_key, result in self.regression_results.items():
                 if 'test_r2' in result['metrics']:
                     score = result['metrics']['test_r2']
                     if score > best_score:
@@ -233,22 +266,22 @@ class ModelTrainer:
                         best_model_key = model_key
             
             if best_model_key:
-                self.best_model = self.trained_models[best_model_key]
-                self.best_model_name = self.model_results[best_model_key]['name']
-                logger.info(f"Best model: {self.best_model_name} (R² = {best_score:.4f})")
+                self.best_regression_model = self.trained_regression_models[best_model_key]
+                self.best_regression_model_name = self.regression_results[best_model_key]['name']
+                logger.info(f"Best regression model: {self.best_regression_model_name} (R² = {best_score:.4f})")
             else:
                 # Fallback to training R² if no test metrics
                 best_score = -np.inf
-                for model_key, result in self.model_results.items():
+                for model_key, result in self.regression_results.items():
                     score = result['metrics']['train_r2']
                     if score > best_score:
                         best_score = score
                         best_model_key = model_key
                 
                 if best_model_key:
-                    self.best_model = self.trained_models[best_model_key]
-                    self.best_model_name = self.model_results[best_model_key]['name']
-                    logger.info(f"Best model (train): {self.best_model_name} (R² = {best_score:.4f})")
+                    self.best_regression_model = self.trained_regression_models[best_model_key]
+                    self.best_regression_model_name = self.regression_results[best_model_key]['name']
+                    logger.info(f"Best regression model (train): {self.best_regression_model_name} (R² = {best_score:.4f})")
                     
         except Exception as e:
             logger.error(f"Error finding best model: {e}")
@@ -269,7 +302,7 @@ class ModelTrainer:
             
             cv_results = {}
             
-            for model_key, model_info in self.models.items():
+            for model_key, model_info in self.regression_models.items():
                 try:
                     logger.info(f"Cross-validating {model_info['name']}...")
                     
@@ -321,12 +354,12 @@ class ModelTrainer:
             Dictionary with tuning results
         """
         try:
-            if model_key not in self.models:
-                raise ValueError(f"Model {model_key} not found")
+            if model_key not in self.regression_models:
+                raise ValueError(f"Regression model {model_key} not found")
             
-            logger.info(f"Performing hyperparameter tuning for {self.models[model_key]['name']}...")
+            logger.info(f"Performing hyperparameter tuning for {self.regression_models[model_key]['name']}...")
             
-            model = self.models[model_key]['instance']
+            model = self.regression_models[model_key]['instance']
             
             # Perform grid search
             grid_search = GridSearchCV(
@@ -345,7 +378,7 @@ class ModelTrainer:
             
             # Update model with best parameters
             best_model = grid_search.best_estimator_
-            self.trained_models[model_key] = best_model
+            self.trained_regression_models[model_key] = best_model
             
             logger.info(f"Best parameters: {best_params}")
             logger.info(f"Best CV score: {best_score:.4f}")
@@ -373,17 +406,17 @@ class ModelTrainer:
         """
         try:
             if model_key is None:
-                if self.best_model is None:
-                    logger.warning("No best model available")
+                if self.best_regression_model is None:
+                    logger.warning("No best regression model available")
                     return pd.DataFrame()
-                model = self.best_model
-                model_name = self.best_model_name
+                model = self.best_regression_model
+                model_name = self.best_regression_model_name
             else:
-                if model_key not in self.trained_models:
-                    logger.warning(f"Model {model_key} not found")
+                if model_key not in self.trained_regression_models:
+                    logger.warning(f"Regression model {model_key} not found")
                     return pd.DataFrame()
-                model = self.trained_models[model_key]
-                model_name = self.models[model_key]['name']
+                model = self.trained_regression_models[model_key]
+                model_name = self.regression_models[model_key]['name']
             
             # Check if model supports feature importance
             if not hasattr(model, 'feature_importances_'):
@@ -422,18 +455,18 @@ class ModelTrainer:
         """
         try:
             if model_key is None:
-                if self.best_model is None:
-                    raise ValueError("No best model available")
-                model = self.best_model
+                if self.best_regression_model is None:
+                    raise ValueError("No best regression model available")
+                model = self.best_regression_model
             else:
-                if model_key not in self.trained_models:
-                    raise ValueError(f"Model {model_key} not found")
-                model = self.trained_models[model_key]
+                if model_key not in self.trained_regression_models:
+                    raise ValueError(f"Regression model {model_key} not found")
+                model = self.trained_regression_models[model_key]
             
             # Make predictions
             predictions = model.predict(X)
             
-            logger.info(f"Predictions made using {model_key or 'best model'}")
+            logger.info(f"Predictions made using {model_key or 'best regression model'}")
             return predictions
             
         except Exception as e:
@@ -448,15 +481,15 @@ class ModelTrainer:
             Dictionary with model summary
         """
         summary = {
-            'total_models': len(self.models),
-            'trained_models': len(self.trained_models),
-            'best_model': self.best_model_name,
-            'model_results': {}
+            'total_regression_models': len(self.regression_models),
+            'trained_regression_models': len(self.trained_regression_models),
+            'best_regression_model': self.best_regression_model_name,
+            'regression_results': {}
         }
         
-        # Add results for each model
-        for model_key, result in self.model_results.items():
-            summary['model_results'][model_key] = {
+        # Add results for each regression model
+        for model_key, result in self.regression_results.items():
+            summary['regression_results'][model_key] = {
                 'name': result['name'],
                 'train_r2': result['metrics'].get('train_r2', None),
                 'test_r2': result['metrics'].get('test_r2', None),
@@ -468,13 +501,28 @@ class ModelTrainer:
     
     def save_results(self, filepath: str = None):
         """
-        Save model results to file
+        Save all results to CSV (for backward compatibility)
         
         Args:
             filepath: Path to save file (optional)
         """
-        if not self.model_results:
-            logger.warning("No model results to save")
+        # Save regression results
+        self.save_regression_results()
+        
+        # Save classification results
+        self.save_classification_results()
+        
+        logger.info("All results saved successfully")
+    
+    def save_regression_results(self, filepath: str = None):
+        """
+        Save regression results to CSV
+        
+        Args:
+            filepath: Path to save file (optional)
+        """
+        if not self.regression_results:
+            logger.warning("No regression results to save")
             return
         
         if filepath is None:
@@ -484,20 +532,320 @@ class ModelTrainer:
         try:
             # Prepare results for saving
             results_data = []
-            for model_key, result in self.model_results.items():
+            for model_key, result in self.regression_results.items():
                 row = {
                     'model_key': model_key,
-                    'model_name': result['name']
+                    'name': result['name'],
+                    'train_r2': result['metrics'].get('train_r2', None),
+                    'test_r2': result['metrics'].get('test_r2', None),
+                    'train_mse': result['metrics'].get('train_mse', None),
+                    'test_mse': result['metrics'].get('test_mse', None),
+                    'train_mae': result['metrics'].get('train_mae', None),
+                    'test_mae': result['metrics'].get('test_mae', None)
                 }
-                row.update(result['metrics'])
                 results_data.append(row)
             
             # Create DataFrame and save
             results_df = pd.DataFrame(results_data)
             results_df.to_csv(filepath, index=False)
             
-            logger.info(f"Model results saved to {filepath}")
+            logger.info(f"Regression results saved to {filepath}")
             
         except Exception as e:
-            logger.error(f"Error saving model results: {e}")
+            logger.error(f"Error saving regression results: {e}")
+            raise
+
+    def train_classification_models(self, X: np.ndarray, y: np.ndarray) -> Dict:
+        """
+        Train all classification models
+        
+        Args:
+            X: Feature matrix
+            y: Classification target (0 or 1)
+            
+        Returns:
+            Dictionary with training results
+        """
+        try:
+            logger.info("Training classification models...")
+            
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y
+            )
+            
+            logger.info(f"Data split: Train={X_train.shape[0]}, Test={X_test.shape[0]}")
+            logger.info(f"Target distribution - Train: {np.bincount(y_train)}, Test: {np.bincount(y_test)}")
+            
+            results = {}
+            
+            for model_key, model_info in self.classification_models.items():
+                try:
+                    logger.info(f"Training {model_info['name']}...")
+                    
+                    # Train model
+                    model = model_info['instance'].fit(X_train, y_train)
+                    
+                    # Store trained model
+                    self.trained_classification_models[model_key] = model
+                    
+                    # Make predictions
+                    y_train_pred = model.predict(X_train)
+                    y_test_pred = model.predict(X_test)
+                    
+                    # Calculate metrics
+                    train_accuracy = accuracy_score(y_train, y_train_pred)
+                    test_accuracy = accuracy_score(y_test, y_test_pred)
+                    
+                    # Store results
+                    results[model_key] = {
+                        'name': model_info['name'],
+                        'metrics': {
+                            'train_accuracy': train_accuracy,
+                            'test_accuracy': test_accuracy
+                        },
+                        'predictions': {
+                            'train': y_train_pred,
+                            'test': y_test_pred
+                        }
+                    }
+                    
+                    logger.info(f"{model_info['name']}: Train Accuracy={train_accuracy:.4f}, Test Accuracy={test_accuracy:.4f}")
+                    
+                except Exception as e:
+                    logger.error(f"Error training {model_key}: {e}")
+                    continue
+            
+            # Store results
+            self.classification_results = results
+            
+            # Find best model
+            self._find_best_classification_model()
+            
+            logger.info("Classification model training completed")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in classification model training: {e}")
+            raise
+    
+    def _find_best_classification_model(self):
+        """Find the best performing classification model"""
+        try:
+            if not self.classification_results:
+                return
+            
+            best_score = -np.inf
+            best_model_key = None
+            
+            for model_key, result in self.classification_results.items():
+                if 'test_accuracy' in result['metrics']:
+                    score = result['metrics']['test_accuracy']
+                    if score > best_score:
+                        best_score = score
+                        best_model_key = model_key
+            
+            if best_model_key:
+                self.best_classification_model = self.trained_classification_models[best_model_key]
+                self.best_classification_model_name = self.classification_results[best_model_key]['name']
+                logger.info(f"Best classification model: {self.best_classification_model_name} (Accuracy = {best_score:.4f})")
+            else:
+                # Fallback to training accuracy if no test metrics
+                best_score = -np.inf
+                for model_key, result in self.classification_results.items():
+                    score = result['metrics']['train_accuracy']
+                    if score > best_score:
+                        best_score = score
+                        best_model_key = model_key
+                
+                if best_model_key:
+                    self.best_classification_model = self.trained_classification_models[best_model_key]
+                    self.best_classification_model_name = self.classification_results[best_model_key]['name']
+                    logger.info(f"Best classification model (train): {self.best_classification_model_name} (Accuracy = {best_score:.4f})")
+                    
+        except Exception as e:
+            logger.error(f"Error finding best classification model: {e}")
+    
+    def cross_validate_classification_models(self, X: np.ndarray, y: np.ndarray) -> Dict:
+        """
+        Perform cross-validation for all classification models
+        
+        Args:
+            X: Feature matrix
+            y: Classification target
+            
+        Returns:
+            Dictionary with cross-validation results
+        """
+        try:
+            logger.info("Performing cross-validation for classification models...")
+            
+            cv_results = {}
+            
+            for model_key, model_info in self.classification_models.items():
+                try:
+                    logger.info(f"Cross-validating {model_info['name']}...")
+                    
+                    # Perform cross-validation
+                    cv_scores = cross_val_score(
+                        model_info['instance'], X, y, 
+                        cv=CROSS_VALIDATION_FOLDS, scoring='accuracy'
+                    )
+                    
+                    cv_results[model_key] = {
+                        'name': model_info['name'],
+                        'cv_scores': cv_scores,
+                        'mean_accuracy': cv_scores.mean(),
+                        'std_accuracy': cv_scores.std()
+                    }
+                    
+                    logger.info(f"{model_info['name']}: CV Accuracy = {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+                    
+                except Exception as e:
+                    logger.error(f"Error in cross-validation for {model_key}: {e}")
+                    continue
+            
+            logger.info("Classification cross-validation completed")
+            return cv_results
+            
+        except Exception as e:
+            logger.error(f"Error in classification cross-validation: {e}")
+            raise
+    
+    def predict_classification(self, X: np.ndarray, model_key: str = None) -> np.ndarray:
+        """
+        Make classification predictions
+        
+        Args:
+            X: Feature matrix
+            model_key: Specific model to use (optional)
+            
+        Returns:
+            Classification predictions (0 or 1)
+        """
+        try:
+            if model_key is None:
+                if self.best_classification_model is None:
+                    raise ValueError("No best classification model available")
+                model = self.best_classification_model
+            else:
+                if model_key not in self.trained_classification_models:
+                    raise ValueError(f"Classification model {model_key} not found")
+                model = self.trained_classification_models[model_key]
+            
+            # Make predictions
+            predictions = model.predict(X)
+            
+            logger.info(f"Classification predictions made using {model_key or 'best classification model'}")
+            return predictions
+            
+        except Exception as e:
+            logger.error(f"Error in classification prediction: {e}")
+            raise
+    
+    def get_classification_report(self, y_true: np.ndarray, y_pred: np.ndarray, model_name: str = "Model") -> str:
+        """
+        Generate classification report
+        
+        Args:
+            y_true: True labels
+            y_pred: Predicted labels
+            model_name: Name of the model
+            
+        Returns:
+            Classification report string
+        """
+        try:
+            report = f"Classification Report for {model_name}\n"
+            report += "=" * 50 + "\n"
+            report += classification_report(y_true, y_pred, target_names=['Down', 'Up'])
+            report += "\nConfusion Matrix:\n"
+            report += str(confusion_matrix(y_true, y_pred))
+            return report
+            
+        except Exception as e:
+            logger.error(f"Error generating classification report: {e}")
+            return f"Error generating report: {e}"
+    
+    def save_classification_results(self, filepath: str = None):
+        """
+        Save classification results to CSV
+        
+        Args:
+            filepath: Path to save file (optional)
+        """
+        if not self.classification_results:
+            logger.warning("No classification results to save")
+            return
+        
+        if filepath is None:
+            from config import RESULTS_DIR
+            filepath = RESULTS_DIR / "classification_results.csv"
+        
+        try:
+            # Prepare results for saving
+            results_data = []
+            for model_key, result in self.classification_results.items():
+                row = {
+                    'model_key': model_key,
+                    'name': result['name'],
+                    'train_accuracy': result['metrics']['train_accuracy'],
+                    'test_accuracy': result['metrics']['test_accuracy']
+                }
+                results_data.append(row)
+            
+            # Create DataFrame and save
+            results_df = pd.DataFrame(results_data)
+            results_df.to_csv(filepath, index=False)
+            
+            logger.info(f"Classification results saved to {filepath}")
+            
+        except Exception as e:
+            logger.error(f"Error saving classification results: {e}")
+            raise
+
+    def cross_validate_regression_models(self, X: np.ndarray, y: np.ndarray) -> Dict:
+        """
+        Perform cross-validation for all regression models
+        
+        Args:
+            X: Feature matrix
+            y: Regression target
+            
+        Returns:
+            Dictionary with cross-validation results
+        """
+        try:
+            logger.info("Performing cross-validation for regression models...")
+            
+            cv_results = {}
+            
+            for model_key, model_info in self.regression_models.items():
+                try:
+                    logger.info(f"Cross-validating {model_info['name']}...")
+                    
+                    # Perform cross-validation
+                    cv_scores = cross_val_score(
+                        model_info['instance'], X, y, 
+                        cv=CROSS_VALIDATION_FOLDS, scoring='r2'
+                    )
+                    
+                    cv_results[model_key] = {
+                        'name': model_info['name'],
+                        'cv_scores': cv_scores,
+                        'mean_r2': cv_scores.mean(),
+                        'std_r2': cv_scores.std()
+                    }
+                    
+                    logger.info(f"{model_info['name']}: CV R² = {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+                    
+                except Exception as e:
+                    logger.error(f"Error in cross-validation for {model_key}: {e}")
+                    continue
+            
+            logger.info("Regression cross-validation completed")
+            return cv_results
+            
+        except Exception as e:
+            logger.error(f"Error in regression cross-validation: {e}")
             raise

@@ -190,6 +190,18 @@ class DataLoader:
             # Clean and validate data
             df = df.dropna(subset=['filing', 'CIK'])
             
+            # Filter out rows where filing = 0 or empty
+            initial_rows = len(df)
+            df = df[df['filing'] != '0']
+            df = df[df['filing'] != 0]
+            df = df[df['filing'].astype(str).str.strip() != '']
+            
+            # Filter out rows with empty or invalid close_price
+            df = df.dropna(subset=['close price'])
+            df = df[df['close price'] > 0]  # Ensure close price is positive
+            
+            logger.info(f"Filtered out {initial_rows - len(df)} rows with invalid filing or close_price")
+            
             # Ensure CIK is properly formatted
             df['CIK'] = df['CIK'].astype(str).str.zfill(10)
             
@@ -198,7 +210,7 @@ class DataLoader:
                 df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
             
             # Clean numeric columns
-            numeric_columns = ['Price', 'Shares', 'Employees', 'Total Offering Expense']
+            numeric_columns = ['Price', 'Shares', 'Employees', 'Total Offering Expense', 'close price']
             for col in numeric_columns:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -209,7 +221,7 @@ class DataLoader:
                 if col in df.columns:
                     df[col] = df[col].astype(str).str.strip()
             
-            logger.info("IPO data preprocessing completed")
+            logger.info(f"IPO data preprocessing completed. Final shape: {df.shape}")
             return df
             
         except Exception as e:
@@ -357,12 +369,21 @@ class DataLoader:
                 logger.info(f"Removing {len(duplicate_cols)} duplicate columns")
                 df = df.loc[:, ~df.columns.duplicated()]
             
-            # Create target variable if possible
+            # Create target variables
             if 'Price' in df.columns and 'close price' in df.columns:
+                # Regression target: close price value
+                df['close_price_target'] = df['close price']
+                
+                # Classification target: up/down (1 for up, 0 for down)
+                df['price_direction'] = np.where(df['close price'] > df['Price'], 1, 0)
+                
+                # Keep original first_day_return for comparison
                 df['first_day_return'] = (
                     (df['close price'] - df['Price']) / df['Price'] * 100
                 )
-                logger.info("Target variable 'first_day_return' created")
+                
+                logger.info("Target variables created: close_price_target (regression) and price_direction (classification)")
+                logger.info(f"Price direction distribution: Up={df['price_direction'].sum()}, Down={len(df) - df['price_direction'].sum()}")
             
             # Handle missing values
             numeric_cols = df.select_dtypes(include=[np.number]).columns

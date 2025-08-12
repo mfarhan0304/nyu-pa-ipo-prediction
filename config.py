@@ -27,9 +27,12 @@ SEC_FILINGS_DIR = DATA_DIR / "sec-edgar-filings"
 # Output file paths
 SEC_FEATURES_PATH = RESULTS_DIR / "sec_filing_features.csv"
 ENHANCED_DATASET_PATH = RESULTS_DIR / "enhanced_ipo_dataset.csv"
-MODEL_RESULTS_PATH = RESULTS_DIR / "model_results.csv"
+MODEL_RESULTS_PATH = RESULTS_DIR / "regression_results.csv"
+CLASSIFICATION_RESULTS_PATH = RESULTS_DIR / "classification_results.csv"
 FEATURE_IMPORTANCE_PATH = RESULTS_DIR / "feature_importance.csv"
 PREDICTIONS_PATH = RESULTS_DIR / "predictions.csv"
+REGRESSION_REPORT_PATH = RESULTS_DIR / "regression_report.txt"
+CLASSIFICATION_REPORT_PATH = RESULTS_DIR / "classification_report.txt"
 
 # ML Pipeline Configuration
 RANDOM_STATE = 42
