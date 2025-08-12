@@ -105,6 +105,10 @@ NLP_CONFIG = {
     'max_text_length': 500000,  # 500KB limit for performance
     'sentiment_text_limit': 2000,
     'batch_size': 8,
+    'gemini_api_key': os.getenv('GEMINI_API_KEY', 'AIzaSyBdd-o0lzGgeJSlU0px8L2JsiPrViT5U7E'),  # Get from environment variable
+    'gemini_model': 'gemini-1.5-flash',  # Use Gemini 1.5 Flash for cost-effectiveness
+    'gemini_max_tokens': 4096,
+    'gemini_temperature': 0.1,  # Low temperature for consistent analysis
     'financial_keywords': {
         'risk': ['risk', 'uncertainty', 'volatility', 'exposure', 'liability', 'danger', 'threat'],
         'growth': ['growth', 'expansion', 'increase', 'development', 'acquisition', 'scaling'],

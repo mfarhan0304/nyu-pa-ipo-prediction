@@ -190,7 +190,13 @@ class IPOPipeline:
             
             logger.info("Starting feature engineering...")
             
-            # Engineer features
+            # Check for Gemini API features (comma-separated strings)
+            gemini_columns = self._identify_gemini_features()
+            if gemini_columns:
+                logger.info(f"Found {len(gemini_columns)} Gemini API feature columns: {gemini_columns}")
+                logger.info("Applying specialized preprocessing for comma-separated strings...")
+            
+            # Engineer features (includes new preprocessing methods)
             self.engineered_features = self.feature_engineer.engineer_features(self.combined_data)
             
             if self.engineered_features.empty:
@@ -203,11 +209,82 @@ class IPOPipeline:
             feature_summary = self.feature_engineer.get_feature_summary()
             logger.info(f"Feature engineering summary: {feature_summary}")
             
+            # Log preprocessing details
+            self._log_preprocessing_details()
+            
             return True
             
         except Exception as e:
             logger.error(f"Error in feature engineering: {e}")
             return False
+    
+    def _identify_gemini_features(self) -> List[str]:
+        """
+        Identify columns that contain Gemini API features (comma-separated strings)
+        
+        Returns:
+            List of column names containing Gemini API features
+        """
+        try:
+            if self.combined_data is None:
+                return []
+            
+            gemini_columns = []
+            
+            # Look for columns that start with 'gemini_' and contain comma-separated values
+            for col in self.combined_data.columns:
+                if col.startswith('gemini_') and self.combined_data[col].dtype == 'object':
+                    # Check if column contains comma-separated values
+                    sample_values = self.combined_data[col].dropna().head(100)
+                    if len(sample_values) > 0:
+                        has_commas = sample_values.str.contains(',').any()
+                        if has_commas:
+                            gemini_columns.append(col)
+            
+            return gemini_columns
+            
+        except Exception as e:
+            logger.warning(f"Error identifying Gemini features: {e}")
+            return []
+    
+    def _log_preprocessing_details(self):
+        """Log detailed information about preprocessing steps"""
+        try:
+            if self.engineered_features is None:
+                return
+            
+            logger.info("\n" + "="*50)
+            logger.info("PREPROCESSING DETAILS")
+            logger.info("="*50)
+            
+            # Count different types of features
+            feature_counts = {}
+            
+            for col in self.engineered_features.columns:
+                if '_present' in col:
+                    feature_counts['keyword_binary'] = feature_counts.get('keyword_binary', 0) + 1
+                elif '_tfidf_' in col:
+                    feature_counts['tfidf'] = feature_counts.get('tfidf', 0) + 1
+                elif '_item_count' in col or '_string_length' in col or '_has_multiple' in col:
+                    feature_counts['count_features'] = feature_counts.get('count_features', 0) + 1
+                elif '_encoded' in col:
+                    feature_counts['categorical_encoded'] = feature_counts.get('categorical_encoded', 0) + 1
+                else:
+                    feature_counts['other'] = feature_counts.get('other', 0) + 1
+            
+            logger.info("Feature type breakdown:")
+            for feature_type, count in feature_counts.items():
+                logger.info(f"  {feature_type}: {count}")
+            
+            # Log preprocessing method used
+            if hasattr(self.feature_engineer, 'tfidf_vectorizers'):
+                tfidf_cols = list(self.feature_engineer.tfidf_vectorizers.keys())
+                logger.info(f"TF-IDF preprocessing applied to: {tfidf_cols}")
+            
+            logger.info("="*50)
+            
+        except Exception as e:
+            logger.warning(f"Error logging preprocessing details: {e}")
     
     def _train_and_evaluate_models(self, enable_feature_selection: bool = True, 
                                  enable_pca: bool = False) -> bool:
@@ -356,6 +433,14 @@ class IPOPipeline:
             logger.info(f"Total features: {feature_summary['total_features']}")
             logger.info(f"Selected features: {feature_summary['selected_features']}")
             
+            # Preprocessing summary
+            preprocessing_summary = self.get_preprocessing_summary()
+            if preprocessing_summary:
+                logger.info(f"Preprocessing methods: {', '.join(preprocessing_summary.get('preprocessing_methods', []))}")
+                logger.info("Feature type breakdown:")
+                for feature_type, count in preprocessing_summary.get('feature_types', {}).items():
+                    logger.info(f"  {feature_type}: {count}")
+            
             logger.info("="*60)
             
         except Exception as e:
@@ -376,6 +461,147 @@ class IPOPipeline:
         }
         
         return results
+    
+    def preprocess_new_data(self, new_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Preprocess new data for prediction using fitted transformers
+        
+        Args:
+            new_data: New DataFrame for prediction
+            
+        Returns:
+            DataFrame preprocessed for prediction
+        """
+        try:
+            if self.feature_engineer is None:
+                logger.error("Feature engineer not initialized")
+                return new_data
+            
+            logger.info("Preprocessing new data for prediction...")
+            
+            # Check for Gemini API features
+            gemini_columns = self._identify_gemini_features_in_data(new_data)
+            if gemini_columns:
+                logger.info(f"Found {len(gemini_columns)} Gemini API feature columns in new data")
+            
+            # Apply preprocessing using fitted transformers
+            preprocessed_data = self.feature_engineer.preprocess_for_prediction(new_data)
+            
+            logger.info(f"Preprocessing completed. Shape: {preprocessed_data.shape}")
+            return preprocessed_data
+            
+        except Exception as e:
+            logger.error(f"Error preprocessing new data: {e}")
+            return new_data
+    
+    def _identify_gemini_features_in_data(self, data: pd.DataFrame) -> List[str]:
+        """
+        Identify Gemini API features in a given DataFrame
+        
+        Args:
+            data: DataFrame to analyze
+            
+        Returns:
+            List of column names containing Gemini API features
+        """
+        try:
+            gemini_columns = []
+            
+            # Look for columns that start with 'gemini_' and contain comma-separated values
+            for col in data.columns:
+                if col.startswith('gemini_') and data[col].dtype == 'object':
+                    # Check if column contains comma-separated values
+                    sample_values = data[col].dropna().head(100)
+                    if len(sample_values) > 0:
+                        has_commas = sample_values.str.contains(',').any()
+                        if has_commas:
+                            gemini_columns.append(col)
+            
+            return gemini_columns
+            
+        except Exception as e:
+            logger.warning(f"Error identifying Gemini features in data: {e}")
+            return []
+    
+    def predict_new_data(self, new_data: pd.DataFrame) -> np.ndarray:
+        """
+        Make predictions on new data using the trained model
+        
+        Args:
+            new_data: New DataFrame for prediction
+            
+        Returns:
+            Array of predictions
+        """
+        try:
+            if self.model_trainer is None:
+                logger.error("Model trainer not initialized")
+                return np.array([])
+            
+            if not hasattr(self.model_trainer, 'best_model') or self.model_trainer.best_model is None:
+                logger.error("No trained model available for prediction")
+                return np.array([])
+            
+            logger.info("Making predictions on new data...")
+            
+            # Preprocess new data
+            preprocessed_data = self.preprocess_new_data(new_data)
+            
+            # Make predictions
+            predictions = self.model_trainer.make_predictions(preprocessed_data)
+            
+            logger.info(f"Predictions completed. Shape: {predictions.shape}")
+            return predictions
+            
+        except Exception as e:
+            logger.error(f"Error making predictions: {e}")
+            return np.array([])
+    
+    def get_preprocessing_summary(self) -> Dict:
+        """
+        Get detailed summary of preprocessing steps applied
+        
+        Returns:
+            Dictionary with preprocessing summary
+        """
+        try:
+            if self.engineered_features is None:
+                return {}
+            
+            summary = {
+                'total_features': len(self.engineered_features.columns),
+                'feature_types': {},
+                'preprocessing_methods': []
+            }
+            
+            # Count feature types
+            for col in self.engineered_features.columns:
+                if '_present' in col:
+                    summary['feature_types']['keyword_binary'] = summary['feature_types'].get('keyword_binary', 0) + 1
+                elif '_tfidf_' in col:
+                    summary['feature_types']['tfidf'] = summary['feature_types'].get('tfidf', 0) + 1
+                elif '_item_count' in col or '_string_length' in col or '_has_multiple' in col:
+                    summary['feature_types']['count_features'] = summary['feature_types'].get('count_features', 0) + 1
+                elif '_encoded' in col:
+                    summary['feature_types']['categorical_encoded'] = summary['feature_types'].get('categorical_encoded', 0) + 1
+                else:
+                    summary['feature_types']['other'] = summary['feature_types'].get('other', 0) + 1
+            
+            # Get preprocessing methods used
+            if hasattr(self.feature_engineer, 'tfidf_vectorizers'):
+                summary['preprocessing_methods'].append('TF-IDF Vectorization')
+            
+            if any('_present' in col for col in self.engineered_features.columns):
+                summary['preprocessing_methods'].append('Keyword Extraction')
+            
+            if any('_item_count' in col for col in self.engineered_features.columns):
+                summary['preprocessing_methods'].append('Count Features')
+            
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Error getting preprocessing summary: {e}")
+            return {}
 
 
 def main():
@@ -384,9 +610,15 @@ def main():
     print("=" * 50)
     print("This pipeline combines:")
     print("1. Traditional IPO features (CSV data)")
-    print("2. Advanced NLP analysis of SEC filings")
-    print("3. Enhanced feature engineering")
+    print("2. Advanced NLP analysis of SEC filings (Gemini API)")
+    print("3. Enhanced feature engineering with specialized preprocessing")
     print("4. Comprehensive machine learning modeling")
+    print("=" * 50)
+    print("\n🆕 NEW: Advanced preprocessing for comma-separated strings:")
+    print("   • Keyword extraction (binary features)")
+    print("   • TF-IDF vectorization")
+    print("   • Count-based features")
+    print("   • Automatic Gemini API feature detection")
     print("=" * 50)
     
     # Get user input
@@ -424,6 +656,15 @@ def main():
         print(f"- Features: {results['feature_summary'].get('total_features', 0)}")
         print(f"- Models trained: {results['model_summary'].get('trained_models', 0)}")
         print(f"- Best model: {results['model_summary'].get('best_model', 'N/A')}")
+        
+        # Show preprocessing summary
+        preprocessing_summary = pipeline.get_preprocessing_summary()
+        if preprocessing_summary:
+            print(f"\n🔧 Preprocessing Applied:")
+            print(f"- Methods: {', '.join(preprocessing_summary.get('preprocessing_methods', []))}")
+            print(f"- Feature types:")
+            for feature_type, count in preprocessing_summary.get('feature_types', {}).items():
+                print(f"  • {feature_type}: {count}")
         
         print(f"\n📁 Output files created in 'results/' directory:")
         print("- enhanced_ipo_dataset.csv")

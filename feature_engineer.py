@@ -48,6 +48,12 @@ class FeatureEngineer:
         try:
             logger.info("Starting feature engineering...")
             
+            # Convert lists to strings first (if any)
+            df = self._convert_lists_to_strings(df)
+            
+            # Preprocess comma-separated strings (keyword extraction, TF-IDF, counts)
+            df = self._preprocess_comma_separated_strings(df, method='all')
+            
             # Create enhanced features
             df = self._create_enhanced_features(df)
             
@@ -64,6 +70,176 @@ class FeatureEngineer:
             df = self._select_features(df)
             
             logger.info(f"Feature engineering completed. Final shape: {df.shape}")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error in feature engineering: {e}")
+            raise
+    
+    def preprocess_for_prediction(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Preprocess new data for prediction using fitted transformers
+        
+        Args:
+            df: New DataFrame for prediction
+            
+        Returns:
+            DataFrame preprocessed for prediction
+        """
+        try:
+            logger.info("Preprocessing data for prediction...")
+            
+            # Make a copy to avoid modifying original data
+            df = df.copy()
+            
+            # Convert lists to strings first (if any)
+            df = self._convert_lists_to_strings(df)
+            
+            # Preprocess comma-separated strings using fitted transformers
+            df = self._preprocess_for_prediction_strings(df)
+            
+            # Handle missing values
+            df = self._handle_missing_values(df)
+            
+            # Apply fitted categorical encoders
+            df = self._apply_fitted_encoders(df)
+            
+            # Select features (ensure same columns as training)
+            df = self._select_features_for_prediction(df)
+            
+            logger.info(f"Prediction preprocessing completed. Final shape: {df.shape}")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error in prediction preprocessing: {e}")
+            raise
+    
+    def _preprocess_for_prediction_strings(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Preprocess comma-separated strings for prediction using fitted transformers
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with preprocessed features
+        """
+        try:
+            logger.info("Preprocessing comma-separated strings for prediction...")
+            
+            # Apply keyword extraction (same logic as training)
+            df = self._extract_keywords_from_strings(df)
+            
+            # Apply TF-IDF using fitted vectorizers
+            if hasattr(self, 'tfidf_vectorizers'):
+                for col, vectorizer in self.tfidf_vectorizers.items():
+                    if col in df.columns:
+                        try:
+                            # Prepare text data
+                            text_data = df[col].fillna('').astype(str)
+                            
+                            # Transform using fitted vectorizer
+                            tfidf_features = vectorizer.transform(text_data)
+                            
+                            # Convert to DataFrame
+                            feature_names = [f"{col}_tfidf_{i}" for i in range(tfidf_features.shape[1])]
+                            tfidf_df = pd.DataFrame(
+                                tfidf_features.toarray(),
+                                columns=feature_names,
+                                index=df.index
+                            )
+                            
+                            # Concatenate with original DataFrame
+                            df = pd.concat([df, tfidf_df], axis=1)
+                            
+                            # Remove original column
+                            df = df.drop(columns=[col])
+                            
+                            logger.info(f"Applied fitted TF-IDF for column {col}")
+                            
+                        except Exception as e:
+                            logger.warning(f"Could not apply TF-IDF for column {col}: {e}")
+                            continue
+            
+            # Apply count features (same logic as training)
+            df = self._create_count_features(df)
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error preprocessing strings for prediction: {e}")
+            return df
+    
+    def _apply_fitted_encoders(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Apply fitted label encoders to new data
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with encoded categorical features
+        """
+        try:
+            logger.info("Applying fitted encoders...")
+            
+            for col, le in self.label_encoders.items():
+                if col in df.columns:
+                    try:
+                        # Handle missing values
+                        df[col] = df[col].fillna('Unknown')
+                        
+                        # Apply fitted encoder
+                        df[f'{col}_encoded'] = le.transform(df[col].astype(str))
+                        
+                        # Remove original column
+                        df = df.drop(columns=[col])
+                        
+                        logger.info(f"Applied fitted encoder for column {col}")
+                        
+                    except Exception as e:
+                        logger.warning(f"Could not apply encoder for column {col}: {e}")
+                        continue
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error applying fitted encoders: {e}")
+            return df
+    
+    def _select_features_for_prediction(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Select features for prediction ensuring same columns as training
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with correct features for prediction
+        """
+        try:
+            if hasattr(self, 'feature_names') and self.feature_names:
+                # Select only the features used during training
+                available_features = [col for col in self.feature_names if col in df.columns]
+                missing_features = [col for col in self.feature_names if col not in df.columns]
+                
+                if missing_features:
+                    logger.warning(f"Missing features for prediction: {missing_features}")
+                    # Add missing features with default values
+                    for col in missing_features:
+                        df[col] = 0
+                
+                # Select features in the same order as training
+                df = df[self.feature_names]
+                
+                logger.info(f"Selected {len(self.feature_names)} features for prediction")
+            else:
+                logger.warning("No feature names stored from training. Using all available features.")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error selecting features for prediction: {e}")
             return df
             
         except Exception as e:
@@ -247,6 +423,253 @@ class FeatureEngineer:
             logger.error(f"Error creating derived features: {e}")
             raise
     
+    def _convert_lists_to_strings(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Convert list values in DataFrame to comma-separated strings
+        
+        Args:
+            df: Input DataFrame
+            
+        Returns:
+            DataFrame with list values converted to strings
+        """
+        try:
+            logger.info("Converting list values to strings...")
+            
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    # Check if any values are lists
+                    has_lists = df[col].apply(lambda x: isinstance(x, list)).any()
+                    if has_lists:
+                        # Convert lists to comma-separated strings
+                        df[col] = df[col].apply(lambda x: ', '.join(str(item) for item in x) if isinstance(x, list) else str(x))
+                        logger.info(f"Converted list values in column {col} to comma-separated strings")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error converting lists to strings: {e}")
+            return df
+    
+    def _extract_keywords_from_strings(self, df: pd.DataFrame, keyword_columns: List[str] = None) -> pd.DataFrame:
+        """
+        Extract individual keywords from comma-separated strings and create binary features
+        
+        Args:
+            df: Input DataFrame
+            keyword_columns: List of column names to process (if None, auto-detect)
+            
+        Returns:
+            DataFrame with keyword-based binary features
+        """
+        try:
+            logger.info("Extracting keywords from comma-separated strings...")
+            
+            # Auto-detect keyword columns if not specified
+            if keyword_columns is None:
+                keyword_columns = []
+                for col in df.columns:
+                    if df[col].dtype == 'object':
+                        # Check if column contains comma-separated values
+                        sample_values = df[col].dropna().head(100)
+                        has_commas = sample_values.str.contains(',').any()
+                        if has_commas:
+                            keyword_columns.append(col)
+            
+            logger.info(f"Processing keyword columns: {keyword_columns}")
+            
+            for col in keyword_columns:
+                if col not in df.columns:
+                    continue
+                
+                # Get all unique keywords from the column
+                all_keywords = set()
+                for value in df[col].dropna():
+                    if isinstance(value, str) and ',' in value:
+                        keywords = [kw.strip().lower() for kw in value.split(',')]
+                        all_keywords.update(keywords)
+                
+                # Create binary features for each keyword
+                for keyword in sorted(all_keywords):
+                    feature_name = f"{col}_{keyword.replace(' ', '_')}_present"
+                    df[feature_name] = df[col].apply(
+                        lambda x: 1 if isinstance(x, str) and keyword.lower() in x.lower() else 0
+                    )
+                
+                # Remove original column to avoid duplication
+                df = df.drop(columns=[col])
+                
+                logger.info(f"Created {len(all_keywords)} binary features for column {col}")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error extracting keywords: {e}")
+            return df
+    
+    def _create_tfidf_features(self, df: pd.DataFrame, text_columns: List[str] = None) -> pd.DataFrame:
+        """
+        Create TF-IDF features from comma-separated strings
+        
+        Args:
+            df: Input DataFrame
+            text_columns: List of column names to process (if None, auto-detect)
+            
+        Returns:
+            DataFrame with TF-IDF features
+        """
+        try:
+            logger.info("Creating TF-IDF features from comma-separated strings...")
+            
+            # Auto-detect text columns if not specified
+            if text_columns is None:
+                text_columns = []
+                for col in df.columns:
+                    if df[col].dtype == 'object':
+                        # Check if column contains comma-separated values
+                        sample_values = df[col].dropna().head(100)
+                        has_commas = sample_values.str.contains(',').any()
+                        if has_commas:
+                            text_columns.append(col)
+            
+            logger.info(f"Processing TF-IDF columns: {text_columns}")
+            
+            for col in text_columns:
+                if col not in df.columns:
+                    continue
+                
+                try:
+                    from sklearn.feature_extraction.text import TfidfVectorizer
+                    
+                    # Prepare text data
+                    text_data = df[col].fillna('').astype(str)
+                    
+                    # Create TF-IDF vectorizer
+                    tfidf = TfidfVectorizer(
+                        max_features=20,  # Limit features to prevent explosion
+                        stop_words='english',
+                        ngram_range=(1, 2),
+                        min_df=2,
+                        max_df=0.95
+                    )
+                    
+                    # Fit and transform
+                    tfidf_features = tfidf.fit_transform(text_data)
+                    
+                    # Convert to DataFrame
+                    feature_names = [f"{col}_tfidf_{i}" for i in range(tfidf_features.shape[1])]
+                    tfidf_df = pd.DataFrame(
+                        tfidf_features.toarray(),
+                        columns=feature_names,
+                        index=df.index
+                    )
+                    
+                    # Concatenate with original DataFrame
+                    df = pd.concat([df, tfidf_df], axis=1)
+                    
+                    # Store vectorizer for later use
+                    if not hasattr(self, 'tfidf_vectorizers'):
+                        self.tfidf_vectorizers = {}
+                    self.tfidf_vectorizers[col] = tfidf
+                    
+                    # Remove original column
+                    df = df.drop(columns=[col])
+                    
+                    logger.info(f"Created {len(feature_names)} TF-IDF features for column {col}")
+                    
+                except Exception as e:
+                    logger.warning(f"Could not create TF-IDF features for column {col}: {e}")
+                    continue
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error creating TF-IDF features: {e}")
+            return df
+    
+    def _create_count_features(self, df: pd.DataFrame, count_columns: List[str] = None) -> pd.DataFrame:
+        """
+        Create count-based features from comma-separated strings
+        
+        Args:
+            df: Input DataFrame
+            count_columns: List of column names to process (if None, auto-detect)
+            
+        Returns:
+            DataFrame with count-based features
+        """
+        try:
+            logger.info("Creating count-based features from comma-separated strings...")
+            
+            # Auto-detect count columns if not specified
+            if count_columns is None:
+                count_columns = []
+                for col in df.columns:
+                    if df[col].dtype == 'object':
+                        # Check if column contains comma-separated values
+                        sample_values = df[col].dropna().head(100)
+                        has_commas = sample_values.str.contains(',').any()
+                        if has_commas:
+                            count_columns.append(col)
+            
+            logger.info(f"Processing count columns: {count_columns}")
+            
+            for col in count_columns:
+                if col not in df.columns:
+                    continue
+                
+                # Count of items
+                df[f"{col}_item_count"] = df[col].apply(
+                    lambda x: len(x.split(',')) if isinstance(x, str) and ',' in x else 1
+                )
+                
+                # Length of string
+                df[f"{col}_string_length"] = df[col].apply(
+                    lambda x: len(str(x)) if pd.notna(x) else 0
+                )
+                
+                # Has multiple items (binary)
+                df[f"{col}_has_multiple"] = df[col].apply(
+                    lambda x: 1 if isinstance(x, str) and ',' in x else 0
+                )
+                
+                logger.info(f"Created count features for column {col}")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error creating count features: {e}")
+            return df
+    
+    def _preprocess_comma_separated_strings(self, df: pd.DataFrame, method: str = 'keyword') -> pd.DataFrame:
+        """
+        Preprocess comma-separated strings using specified method
+        
+        Args:
+            df: Input DataFrame
+            method: 'keyword', 'tfidf', 'count', or 'all'
+            
+        Returns:
+            DataFrame with preprocessed features
+        """
+        try:
+            logger.info(f"Preprocessing comma-separated strings using method: {method}")
+            
+            if method == 'keyword' or method == 'all':
+                df = self._extract_keywords_from_strings(df)
+            
+            if method == 'tfidf' or method == 'all':
+                df = self._create_tfidf_features(df)
+            
+            if method == 'count' or method == 'all':
+                df = self._create_count_features(df)
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error preprocessing comma-separated strings: {e}")
+            return df
+    
     def _encode_categorical_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Encode categorical features
@@ -259,6 +682,9 @@ class FeatureEngineer:
         """
         try:
             logger.info("Encoding categorical features...")
+            
+            # First convert any list values to strings
+            df = self._convert_lists_to_strings(df)
             
             # Identify categorical columns
             categorical_cols = df.select_dtypes(include=['object', 'category']).columns
@@ -280,7 +706,17 @@ class FeatureEngineer:
                         
                     except Exception as e:
                         logger.warning(f"Could not encode column {col}: {e}")
-                        continue
+                        # Try to handle the column by converting everything to strings first
+                        try:
+                            logger.info(f"Attempting to fix column {col} by converting all values to strings...")
+                            df[col] = df[col].astype(str)
+                            le = LabelEncoder()
+                            df[f'{col}_encoded'] = le.fit_transform(df[col])
+                            self.label_encoders[col] = le
+                            logger.info(f"Successfully encoded column {col} after conversion to strings")
+                        except Exception as e2:
+                            logger.warning(f"Could not encode column {col} even after string conversion: {e2}")
+                            continue
             
             logger.info("Categorical feature encoding completed")
             return df
