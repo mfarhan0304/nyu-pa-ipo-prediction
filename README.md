@@ -8,17 +8,23 @@ This pipeline is designed with a clean, modular architecture that separates conc
 
 ```
 IPO Analysis Pipeline
-├── config.py              # Centralized configuration
-├── data_loader.py         # Data loading and preprocessing
-├── sec_processor.py       # SEC filing NLP processing
-├── feature_engineer.py    # Feature engineering and selection
-├── model_trainer.py       # Model training and evaluation
-├── main_pipeline.py       # Pipeline orchestrator
-└── results/               # Output directory
-    ├── enhanced_ipo_dataset.csv
-    ├── model_results.csv
-    ├── feature_importance.csv
-    └── predictions.csv
+├── config.py                    # Centralized configuration
+├── data_loader.py              # Data loading and preprocessing
+├── sec_processor.py            # SEC filing NLP processing
+├── feature_engineer.py         # Feature engineering and selection
+├── model_trainer.py            # Model training and evaluation
+├── visualization_generator.py  # Comprehensive visualization system
+├── main_pipeline.py            # Pipeline orchestrator
+├── generate_visualizations.py  # Standalone visualization tool
+├── results/                    # Output directory
+│   ├── enhanced_ipo_dataset.csv
+│   ├── model_results.csv
+│   ├── feature_importance.csv
+│   └── predictions.csv
+└── visualizations/             # Visualization output directory
+    ├── Charts and plots (.png)
+    ├── Interactive dashboard (.html)
+    └── Comprehensive report (.md)
 ```
 
 ## 🚀 **Key Features**
@@ -47,12 +53,19 @@ IPO Analysis Pipeline
 - **Hyperparameter Tuning**: Automated parameter optimization
 - **Feature Importance**: Model interpretability analysis
 
+### **Comprehensive Visualization**
+- **Automatic Chart Generation**: Data overview, market analysis, model performance
+- **Interactive Dashboards**: Plotly-based interactive visualizations
+- **Publication Quality**: High-DPI charts for reports and presentations
+- **Standalone Tool**: Generate visualizations from existing results
+
 ## 🛠️ **Installation**
 
 ### **Quick Start**
 ```bash
 # Install dependencies
 pip install -r requirements_pipeline.txt
+pip install -r requirements_visualization.txt  # For visualization capabilities
 
 # Run the pipeline
 python main_pipeline.py
@@ -62,7 +75,8 @@ python main_pipeline.py
 ```bash
 # For development
 pip install -r requirements_pipeline.txt
-pip install -r requirements_nlp.txt  # Full NLP capabilities
+pip install -r requirements_nlp.txt      # Full NLP capabilities
+pip install -r requirements_visualization.txt  # Visualization capabilities
 
 # Create virtual environment (recommended)
 python -m venv ipo_env
@@ -100,6 +114,28 @@ combined_data = data_loader.merge_data()
 # 2. Engineer features
 feature_engineer = FeatureEngineer()
 engineered_features = feature_engineer.engineer_features(combined_data)
+
+# 3. Train models
+model_trainer = ModelTrainer()
+regression_results = model_trainer.train_regression_models(engineered_features, combined_data['close_price_target'])
+
+# 4. Generate visualizations
+from visualization_generator import VisualizationGenerator
+viz_generator = VisualizationGenerator()
+visualization_files = viz_generator.generate_comprehensive_report(
+    data=combined_data,
+    model_results=model_trainer.get_model_summary(),
+    feature_importance=model_trainer.get_feature_importance()
+)
+
+### **Standalone Visualization Generation**
+Generate visualizations from existing pipeline results:
+
+```bash
+python generate_visualizations.py
+```
+
+This will create comprehensive charts, interactive dashboards, and reports from previously generated pipeline results.
 
 # 3. Train models
 model_trainer = ModelTrainer()

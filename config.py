@@ -13,9 +13,10 @@ DATA_DIR = PROJECT_ROOT / "data"
 MODELS_DIR = PROJECT_ROOT / "models"
 RESULTS_DIR = PROJECT_ROOT / "results"
 LOGS_DIR = PROJECT_ROOT / "logs"
+VISUALIZATIONS_DIR = PROJECT_ROOT / "visualizations"
 
 # Create directories if they don't exist
-for dir_path in [DATA_DIR, MODELS_DIR, RESULTS_DIR, LOGS_DIR]:
+for dir_path in [DATA_DIR, MODELS_DIR, RESULTS_DIR, LOGS_DIR, VISUALIZATIONS_DIR]:
     dir_path.mkdir(exist_ok=True)
 
 # Data file paths

@@ -16,6 +16,7 @@ warnings.filterwarnings('ignore')
 from data_loader import DataLoader
 from feature_engineer import FeatureEngineer
 from model_trainer import ModelTrainer
+from visualization_generator import VisualizationGenerator
 
 # Import configuration
 from config import (
@@ -48,6 +49,7 @@ class IPOPipeline:
         self.data_loader = DataLoader()
         self.feature_engineer = FeatureEngineer()
         self.model_trainer = ModelTrainer()
+        self.visualization_generator = VisualizationGenerator()
         
         # Pipeline state
         self.combined_data = None
@@ -108,9 +110,19 @@ class IPOPipeline:
                 logger.error("Pipeline failed at model training step")
                 return False
             
-            # Step 4: Save results and generate reports
+            # Step 4: Generate comprehensive visualizations and reports
             logger.info("\n" + "="*60)
-            logger.info("STEP 4: SAVING RESULTS AND GENERATING REPORTS")
+            logger.info("STEP 4: GENERATING VISUALIZATIONS AND REPORTS")
+            logger.info("="*60)
+            
+            success = self._generate_visualizations_and_reports()
+            if not success:
+                logger.error("Pipeline failed at visualization generation step")
+                return False
+            
+            # Step 5: Save results and generate reports
+            logger.info("\n" + "="*60)
+            logger.info("STEP 5: SAVING RESULTS AND GENERATING REPORTS")
             logger.info("="*60)
             
             success = self._save_results_and_reports()
@@ -276,6 +288,45 @@ class IPOPipeline:
             
         except Exception as e:
             logger.error(f"Error in model training: {e}")
+            return False
+    
+    def _generate_visualizations_and_reports(self) -> bool:
+        """
+        Generate comprehensive visualizations and reports
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            logger.info("Generating comprehensive visualizations and reports...")
+            
+            # Get feature importance
+            feature_importance = self.model_trainer.get_feature_importance()
+            
+            # Get model results summary
+            model_summary = self.model_trainer.get_model_summary()
+            
+            # Generate comprehensive visualizations
+            visualization_files = self.visualization_generator.generate_comprehensive_report(
+                data=self.combined_data,
+                model_results=model_summary,
+                feature_importance=feature_importance
+            )
+            
+            logger.info(f"Generated {len(visualization_files)} visualization files")
+            
+            # Log generated files
+            for viz_type, filepath in visualization_files.items():
+                logger.info(f"Generated {viz_type}: {filepath}")
+            
+            # Generate quick charts for immediate analysis
+            quick_charts = self.visualization_generator.generate_quick_charts(self.combined_data)
+            logger.info(f"Generated {len(quick_charts)} quick charts")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error generating visualizations: {e}")
             return False
     
     def _generate_predictions(self, X: np.ndarray, y_regression: np.ndarray, y_classification: np.ndarray):
@@ -460,6 +511,10 @@ Price Range Analysis:
             logger.info(f"Total features: {feature_summary['total_features']}")
             logger.info(f"Selected features: {feature_summary['selected_features']}")
             
+            # Visualization summary
+            logger.info(f"Visualizations generated: {len(self.visualization_generator.output_dir.glob('*.png')) + len(self.visualization_generator.output_dir.glob('*.html'))}")
+            logger.info(f"Visualization directory: {self.visualization_generator.output_dir}")
+            
             logger.info("="*60)
             
         except Exception as e:
@@ -544,11 +599,16 @@ def main():
             print(f"- Best overall model: {results['model_summary'].get('best_model', 'N/A')} ({results['model_summary'].get('best_model_type', 'N/A')})")
             print(f"  Overall best score: {results['model_summary'].get('best_model_score', 0):.4f}")
         
-        print(f"\n📁 Output files created in 'results/' directory:")
-        print("- enhanced_ipo_dataset.csv")
-        print("- model_results.csv")
-        print("- feature_importance.csv")
-        print("- predictions.csv")        
+        print(f"\n📁 Output files created:")
+        print("📊 Results directory:")
+        print("  - enhanced_ipo_dataset.csv")
+        print("  - model_results.csv")
+        print("  - feature_importance.csv")
+        print("  - predictions.csv")
+        print("📈 Visualizations directory:")
+        print("  - Comprehensive charts and plots")
+        print("  - Interactive dashboard (HTML)")
+        print("  - Summary report (Markdown)")        
     else:
         print("\n❌ Pipeline failed. Check logs for details.")
 

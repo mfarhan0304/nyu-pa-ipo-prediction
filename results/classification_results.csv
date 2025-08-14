@@ -1,5 +1,5 @@
 model_key,name,train_accuracy,test_accuracy
-logistic_regression,Logistic Regression,0.6896418944936465,0.6892307692307692
-random_forest_classification,Random Forest Classification,0.7924528301886793,0.7
-gradient_boosting_classification,Gradient Boosting Classification,0.8887177512514439,0.6861538461538461
-xgboost_classification,XGBoost Classification,0.8355795148247979,0.6815384615384615
+logistic_regression,Logistic Regression,0.6875721431319738,0.6846153846153846
+random_forest_classification,Random Forest Classification,0.9026548672566371,0.6784615384615384
+gradient_boosting_classification,Gradient Boosting Classification,0.9834551750673336,0.6861538461538461
+xgboost_classification,XGBoost Classification,0.9807618314736437,0.7123076923076923

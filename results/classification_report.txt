@@ -1,14 +1,14 @@
-Classification Report for Random Forest Classification
+Classification Report for XGBoost Classification
 ==================================================
               precision    recall  f1-score   support
 
-        Down       0.96      0.28      0.44      1010
-          Up       0.75      1.00      0.86      2237
+        Down       0.96      0.80      0.87      1011
+          Up       0.92      0.99      0.95      2238
 
-    accuracy                           0.77      3247
-   macro avg       0.86      0.64      0.65      3247
-weighted avg       0.82      0.77      0.73      3247
+    accuracy                           0.93      3249
+   macro avg       0.94      0.89      0.91      3249
+weighted avg       0.93      0.93      0.93      3249
 
 Confusion Matrix:
-[[ 287  723]
- [  11 2226]]
+[[ 807  204]
+ [  33 2205]]
